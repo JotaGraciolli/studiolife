@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   Home,
   Users,
@@ -7,8 +7,11 @@ import {
   CalendarCheck,
   Menu,
   X,
+  LogOut,
+  User,
 } from 'lucide-react'
 import { useState } from 'react'
+import { useAuth } from '../hooks/useAuth'
 
 const navItems = [
   { path: '/', label: 'Início', icon: Home },
@@ -20,7 +23,18 @@ const navItems = [
 
 export function Layout({ children }) {
   const location = useLocation()
+  const navigate = useNavigate()
+  const { user, signOut } = useAuth()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  async function handleLogout() {
+    try {
+      await signOut()
+      navigate('/login', { replace: true })
+    } catch (err) {
+      console.error('Erro ao sair:', err)
+    }
+  }
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
@@ -57,8 +71,19 @@ export function Layout({ children }) {
             })}
           </ul>
         </nav>
-        <div className="border-t border-[var(--border)] p-4 text-xs text-slate-400">
-          StudioLife Pilates
+        <div className="border-t border-[var(--border)] p-4">
+          <div className="mb-3 flex items-center gap-2 text-xs text-slate-500">
+            <User size={14} />
+            <span className="truncate">{user?.email || 'Usuário'}</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-[var(--danger)]"
+          >
+            <LogOut size={16} />
+            Sair
+          </button>
         </div>
       </aside>
 
@@ -72,13 +97,22 @@ export function Layout({ children }) {
             StudioLife
           </span>
         </div>
-        <button
-          type="button"
-          onClick={() => setMobileOpen(!mobileOpen)}
-          className="rounded-lg p-2 text-[var(--text)] hover:bg-slate-50"
-        >
-          {mobileOpen ? <X size={24} /> : <Menu size={24} />}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="rounded-lg p-2 text-slate-500 hover:bg-slate-50 hover:text-[var(--danger)]"
+          >
+            <LogOut size={20} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="rounded-lg p-2 text-[var(--text)] hover:bg-slate-50"
+          >
+            {mobileOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
+        </div>
       </header>
 
       {/* Menu mobile */}
