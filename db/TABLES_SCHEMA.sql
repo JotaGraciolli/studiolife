@@ -12,6 +12,10 @@ CREATE TABLE public.clients (
   monthly_fee real,
   observations text,
   status text,
+  cpf text,
+  chief_complaint text,
+  goal text,
+  due_date smallint,
   CONSTRAINT clients_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.evaluations (
@@ -32,6 +36,7 @@ CREATE TABLE public.evaluations (
   thigh_right real,
   calf_left real,
   calf_right real,
+  progress_notes text,
   CONSTRAINT evaluations_pkey PRIMARY KEY (id),
   CONSTRAINT evaluations_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id)
 );
@@ -50,6 +55,7 @@ CREATE TABLE public.training_days (
   client_id uuid,
   week_day text,
   training_time time without time zone,
+  provisional boolean DEFAULT false,
   CONSTRAINT training_days_pkey PRIMARY KEY (id),
   CONSTRAINT training_days_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id)
 );
@@ -68,4 +74,28 @@ CREATE TABLE public.attendance (
   status text,
   CONSTRAINT attendance_pkey PRIMARY KEY (id),
   CONSTRAINT attendance_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id)
+);
+CREATE TABLE public.diagnoses (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  client_id uuid,
+  diagnose text,
+  CONSTRAINT diagnoses_pkey PRIMARY KEY (id),
+  CONSTRAINT diagnoses_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id)
+);
+CREATE TABLE public.restrictions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  client_id uuid,
+  restriction text,
+  CONSTRAINT restrictions_pkey PRIMARY KEY (id),
+  CONSTRAINT restrictions_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id)
+);
+CREATE TABLE public.medications (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  client_id uuid,
+  medication text,
+  CONSTRAINT medications_pkey PRIMARY KEY (id),
+  CONSTRAINT medications_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id)
 );

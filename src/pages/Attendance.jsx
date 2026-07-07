@@ -1,16 +1,28 @@
-import { useState } from 'react'
-import { CheckCircle2, XCircle, HelpCircle, Save, Calendar } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { CheckCircle2, XCircle, HelpCircle, Save, Calendar, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { PageHeader } from '../components/PageHeader'
 import { Loading } from '../components/Loading'
 import { ErrorMessage } from '../components/ErrorMessage'
 
 const weekDays = [
-  { value: 'segunda', label: 'SEG', full: 'Segunda-feira' },
-  { value: 'terca', label: 'TER', full: 'Terça-feira' },
-  { value: 'quarta', label: 'QUA', full: 'Quarta-feira' },
-  { value: 'quinta', label: 'QUI', full: 'Quinta-feira' },
-  { value: 'sexta', label: 'SEX', full: 'Sexta-feira' },
+  { value: 'domingo', label: 'Domingo', full: 'Domingo' },
+  { value: 'segunda', label: 'Segunda', full: 'Segunda-feira' },
+  { value: 'terca', label: 'Terça', full: 'Terça-feira' },
+  { value: 'quarta', label: 'Quarta', full: 'Quarta-feira' },
+  { value: 'quinta', label: 'Quinta', full: 'Quinta-feira' },
+  { value: 'sexta', label: 'Sexta', full: 'Sexta-feira' },
+  { value: 'sabado', label: 'Sábado', full: 'Sábado' },
+]
+
+const weekDayOptions = [
+  { value: 'segunda', label: 'Segunda-feira' },
+  { value: 'terca', label: 'Terça-feira' },
+  { value: 'quarta', label: 'Quarta-feira' },
+  { value: 'quinta', label: 'Quinta-feira' },
+  { value: 'sexta', label: 'Sexta-feira' },
+  { value: 'sabado', label: 'Sábado' },
+  { value: 'domingo', label: 'Domingo' },
 ]
 
 const statusOptions = [
@@ -19,64 +31,96 @@ const statusOptions = [
   { value: 'falta_justificada', label: 'Falta justificada', icon: HelpCircle },
 ]
 
+function getDayOfWeek(dateString) {
+  const date = new Date(dateString + 'T00:00:00')
+  return weekDays[date.getDay()].value
+}
+
+function addDays(dateString, days) {
+  const date = new Date(dateString + 'T00:00:00')
+  date.setDate(date.getDate() + days)
+  return date.toISOString().split('T')[0]
+}
+
 export function Attendance() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
-  const [selectedDay, setSelectedDay] = useState(null)
+  const [selectedDay, setSelectedDay] = useState(getDayOfWeek(new Date().toISOString().split('T')[0]))
   const [groupedStudents, setGroupedStudents] = useState([])
   const [attendanceMap, setAttendanceMap] = useState({})
+  const [replacementMap, setReplacementMap] = useState({})
+  const [noReplacementMap, setNoReplacementMap] = useState({})
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
-  async function loadStudentsForDay(day) {
+  useEffect(() => {
+    loadStudentsForDay(selectedDay, selectedDate)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function loadStudentsForDay(day, date) {
     setSelectedDay(day)
     setLoading(true)
     setError('')
     setSuccess('')
     setAttendanceMap({})
+    setReplacementMap({})
 
     try {
-      // Busca alunos ativos com treino no dia selecionado
       const { data: trainingData, error: trainingError } = await supabase
         .from('training_days')
-        .select('id, training_time, client_id, clients(id, name, status)')
+        .select('id, training_time, week_day, provisional, client_id, clients(id, name, status)')
         .eq('week_day', day)
         .eq('clients.status', 'ativo')
         .order('training_time', { ascending: true })
 
       if (trainingError) throw trainingError
 
-      // Agrupa por horario
       const groups = {}
       const initialMap = {}
+      const initialReplacement = {}
 
-      ;(trainingData || []).forEach((item) => {
-        const time = item.training_time ? item.training_time.slice(0, 5) : '--:--'
-        if (!groups[time]) {
-          groups[time] = []
-        }
-        groups[time].push({
-          trainingId: item.id,
-          clientId: item.client_id,
-          clientName: item.clients?.name || 'Aluno não encontrado',
-          trainingTime: time,
+        ; (trainingData || []).forEach((item) => {
+          const time = item.training_time ? item.training_time.slice(0, 5) : '--:--'
+          if (!groups[time]) {
+            groups[time] = []
+          }
+          groups[time].push({
+            trainingDayId: item.id,
+            clientId: item.client_id,
+            clientName: item.clients?.name || 'Aluno não encontrado',
+            trainingTime: time,
+            weekDay: item.week_day,
+            provisional: item.provisional || false,
+          })
+          initialMap[item.client_id] = 'presente'
+          initialReplacement[item.client_id] = {
+            week_day: item.week_day,
+            training_time: time,
+          }
         })
-        initialMap[item.client_id] = 'presente'
+
+      const initialNoReplacement = {}
+      Object.keys(initialMap).forEach((clientId) => {
+        initialNoReplacement[clientId] = false
       })
 
       const sortedGroups = Object.keys(groups)
         .sort()
         .map((time) => ({
           time,
-          students: groups[time],
+          students: groups[time].slice().sort((a, b) =>
+            a.clientName.localeCompare(b.clientName),
+          ),
         }))
 
       setGroupedStudents(sortedGroups)
       setAttendanceMap(initialMap)
+      setReplacementMap(initialReplacement)
+      setNoReplacementMap(initialNoReplacement)
 
-      // Verifica registros existentes para preencher status anteriores
-      await loadExistingAttendance(Object.keys(initialMap))
+      await loadExistingAttendance(Object.keys(initialMap), date)
     } catch (err) {
       const detail = err?.message || err?.error_description || JSON.stringify(err)
       setError(`Erro ao carregar alunos: ${detail}`)
@@ -86,11 +130,11 @@ export function Attendance() {
     }
   }
 
-  async function loadExistingAttendance(clientIds) {
+  async function loadExistingAttendance(clientIds, date) {
     if (clientIds.length === 0) return
 
-    const startOfDay = `${selectedDate}T00:00:00`
-    const endOfDay = `${selectedDate}T23:59:59`
+    const startOfDay = `${date}T00:00:00`
+    const endOfDay = `${date}T23:59:59`
 
     const { data, error } = await supabase
       .from('attendance')
@@ -110,11 +154,72 @@ export function Attendance() {
         existing[record.client_id] = record.status
       })
       setAttendanceMap((prev) => ({ ...prev, ...existing }))
+
+      // Carrega training_days provisionais para preencher reposicao
+      const justifiedIds = data
+        .filter((r) => r.status === 'falta_justificada')
+        .map((r) => r.client_id)
+
+      if (justifiedIds.length > 0) {
+        await loadReplacementDays(justifiedIds)
+      }
     }
+  }
+
+  async function loadReplacementDays(clientIds) {
+    const { data, error } = await supabase
+      .from('training_days')
+      .select('client_id, week_day, training_time')
+      .in('client_id', clientIds)
+      .eq('provisional', true)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Erro ao carregar dias de reposição:', error)
+      return
+    }
+
+    if (data && data.length > 0) {
+      const replacements = {}
+      data.forEach((record) => {
+        if (!replacements[record.client_id]) {
+          replacements[record.client_id] = {
+            week_day: record.week_day,
+            training_time: record.training_time ? record.training_time.slice(0, 5) : '',
+          }
+        }
+      })
+      setReplacementMap((prev) => ({ ...prev, ...replacements }))
+    }
+  }
+
+  function changeDate(days) {
+    const newDate = addDays(selectedDate, days)
+    setSelectedDate(newDate)
+    const newDay = getDayOfWeek(newDate)
+    loadStudentsForDay(newDay, newDate)
+  }
+
+  function handleDateChange(e) {
+    const newDate = e.target.value
+    setSelectedDate(newDate)
+    const newDay = getDayOfWeek(newDate)
+    loadStudentsForDay(newDay, newDate)
   }
 
   function handleStatusChange(clientId, status) {
     setAttendanceMap((prev) => ({ ...prev, [clientId]: status }))
+  }
+
+  function handleReplacementChange(clientId, field, value) {
+    setReplacementMap((prev) => ({
+      ...prev,
+      [clientId]: { ...prev[clientId], [field]: value },
+    }))
+  }
+
+  function handleNoReplacementChange(clientId, checked) {
+    setNoReplacementMap((prev) => ({ ...prev, [clientId]: checked }))
   }
 
   async function handleSave() {
@@ -125,37 +230,76 @@ export function Attendance() {
     setSuccess('')
 
     try {
-      const records = []
+      const attendanceRecords = []
+      const replacementRecords = []
+      const provisionalTrainingIdsToDelete = []
+
       groupedStudents.forEach((group) => {
         group.students.forEach((student) => {
           const time = student.trainingTime === '--:--' ? '00:00:00' : `${student.trainingTime}:00`
-          records.push({
+          const status = attendanceMap[student.clientId] || 'presente'
+
+          attendanceRecords.push({
             client_id: student.clientId,
-            status: attendanceMap[student.clientId] || 'presente',
+            status,
             created_at: `${selectedDate}T${time}`,
           })
+
+          if (status === 'falta_justificada' && !noReplacementMap[student.clientId]) {
+            const replacement = replacementMap[student.clientId]
+            if (replacement?.week_day && replacement?.training_time) {
+              replacementRecords.push({
+                client_id: student.clientId,
+                week_day: replacement.week_day,
+                training_time: replacement.training_time + ':00',
+                provisional: true,
+              })
+            }
+          }
+
+          if (student.provisional && student.trainingDayId) {
+            provisionalTrainingIdsToDelete.push(student.trainingDayId)
+          }
         })
       })
 
-      const clientIds = records.map((r) => r.client_id)
+      const clientIds = attendanceRecords.map((r) => r.client_id)
       const startOfDay = `${selectedDate}T00:00:00`
       const endOfDay = `${selectedDate}T23:59:59`
 
-      // Remove registros existentes para o dia e alunos selecionados
-      const { error: deleteError } = await supabase
+      const { error: deleteAttendanceError } = await supabase
         .from('attendance')
         .delete()
         .in('client_id', clientIds)
         .gte('created_at', startOfDay)
         .lte('created_at', endOfDay)
 
-      if (deleteError) throw deleteError
+      if (deleteAttendanceError) throw deleteAttendanceError
 
-      // Insere novos registros
-      const { error: insertError } = await supabase.from('attendance').insert(records)
-      if (insertError) throw insertError
+      const { error: insertAttendanceError } = await supabase
+        .from('attendance')
+        .insert(attendanceRecords)
+      if (insertAttendanceError) throw insertAttendanceError
+
+      if (replacementRecords.length > 0) {
+        const { error: replacementError } = await supabase
+          .from('training_days')
+          .insert(replacementRecords)
+        if (replacementError) throw replacementError
+      }
+
+      if (provisionalTrainingIdsToDelete.length > 0) {
+        const { error: deleteTrainingError } = await supabase
+          .from('training_days')
+          .delete()
+          .in('id', provisionalTrainingIdsToDelete)
+        if (deleteTrainingError) throw deleteTrainingError
+      }
 
       setSuccess('Presença registrada com sucesso!')
+      setGroupedStudents([])
+      setAttendanceMap({})
+      setReplacementMap({})
     } catch (err) {
       const detail = err?.message || err?.error_description || JSON.stringify(err)
       setError(`Erro ao salvar presença: ${detail}`)
@@ -174,17 +318,26 @@ export function Attendance() {
     )
   }
 
+  const selectedDayLabel = weekDays.find((d) => d.value === selectedDay)
+
   return (
     <div>
       <PageHeader
         title="Lista de Presença"
-        description="Selecione o dia da semana para registrar a presença dos alunos."
+        description="Navegue pela data para registrar a presença dos alunos."
       />
 
       <ErrorMessage message={error} />
       <SuccessMessage message={success} />
 
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center">
+      <div className="mb-6 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => changeDate(-1)}
+          className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--surface)] text-[var(--text-heading)] shadow-sm hover:bg-slate-50"
+        >
+          <ChevronLeft size={20} />
+        </button>
         <div className="relative">
           <Calendar
             size={18}
@@ -193,42 +346,29 @@ export function Attendance() {
           <input
             type="date"
             value={selectedDate}
-            onChange={(e) => {
-              setSelectedDate(e.target.value)
-              if (selectedDay) loadStudentsForDay(selectedDay)
-            }}
+            onChange={handleDateChange}
             className="rounded-lg border border-[var(--border)] bg-[var(--surface)] py-2 pl-10 pr-4 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
           />
         </div>
-      </div>
-
-      <div className="mb-6 grid grid-cols-5 gap-2 sm:gap-3">
-        {weekDays.map((day) => {
-          const active = selectedDay === day.value
-          return (
-            <button
-              key={day.value}
-              type="button"
-              onClick={() => loadStudentsForDay(day.value)}
-              className={`rounded-xl px-2 py-3 text-sm font-semibold transition-all sm:text-base ${
-                active
-                  ? 'bg-[var(--primary)] text-white shadow-md'
-                  : 'bg-[var(--surface)] text-[var(--text-heading)] shadow-sm hover:bg-slate-50'
-              }`}
-            >
-              {day.label}
-            </button>
-          )
-        })}
+        <button
+          type="button"
+          onClick={() => changeDate(1)}
+          className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--surface)] text-[var(--text-heading)] shadow-sm hover:bg-slate-50"
+        >
+          <ChevronRight size={20} />
+        </button>
+        <span className="ml-2 text-sm font-medium text-[var(--text-heading)]">
+          {selectedDayLabel?.full}
+        </span>
       </div>
 
       {loading ? (
         <Loading />
-      ) : selectedDay ? (
-        <div className="rounded-xl bg-[var(--surface)] p-4 shadow-sm sm:p-6">
-          <h2 className="mb-4 text-lg font-semibold text-[var(--text-heading)]">
-            Lista de Presença - {weekDays.find((d) => d.value === selectedDay)?.full}
-          </h2>
+      ) : (
+        <div className={`rounded-xl bg-[var(--surface)] p-4 shadow-sm sm:p-6 ${groupedStudents.length > 0 ? 'pb-24' : ''}`}>
+          {/* <h2 className="mb-4 text-lg font-semibold text-[var(--text-heading)]"> */}
+          {/* Lista de Presença - {selectedDayLabel?.full} */}
+          {/* </h2> */}
 
           {groupedStudents.length === 0 ? (
             <p className="py-8 text-center text-slate-500">
@@ -236,91 +376,145 @@ export function Attendance() {
             </p>
           ) : (
             <>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase text-slate-500">
-                      <th className="pb-3 font-medium">Horário</th>
-                      <th className="pb-3 font-medium">Aluno</th>
-                      {statusOptions.map((status) => (
-                        <th key={status.value} className="pb-3 text-center font-medium">
-                          {status.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {groupedStudents.map((group) =>
-                      group.students.map((student, index) => {
-                        const isFirst = index === 0
+              <div className="space-y-6">
+                {groupedStudents.map((group) => (
+                  <div key={group.time} className="rounded-xl border border-[var(--border)] bg-slate-50/50 p-4">
+                    <h3 className="mb-3 text-base font-bold text-[var(--primary)]">
+                      {group.time}
+                    </h3>
+                    <div className="space-y-1">
+                      {group.students.map((student) => {
+                        const status = attendanceMap[student.clientId] || 'presente'
+                        const isJustified = status === 'falta_justificada'
+
                         return (
-                          <tr
+                          <div
                             key={student.clientId}
-                            className="border-t border-[var(--border)]"
+                            className="rounded-lg bg-[var(--surface)] p-3 shadow-sm"
                           >
-                            {isFirst ? (
-                              <td
-                                rowSpan={group.students.length}
-                                className="w-16 py-3 align-top font-semibold text-[var(--text-heading)]"
-                              >
-                                {group.time}
-                              </td>
-                            ) : null}
-                            <td className="py-3 font-medium text-[var(--text-heading)]">
-                              {student.clientName}
-                            </td>
-                            {statusOptions.map((status) => {
-                              const Icon = status.icon
-                              const checked =
-                                attendanceMap[student.clientId] === status.value
-                              return (
-                                <td key={status.value} className="py-3 text-center">
-                                  <label className="inline-flex cursor-pointer flex-col items-center gap-1">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex flex-col">
+                                <span className="text-base font-medium text-[var(--text-heading)]">
+                                  {student.clientName}
+                                </span>
+                                {student.provisional && (
+                                  <span className="text-xs text-purple-600">(reposição)</span>
+                                )}
+                              </div>
+
+                              <div className="flex flex-col items-end gap-2">
+                                {statusOptions.map((statusOption) => {
+                                  const checked = status === statusOption.value
+                                  return (
+                                    <label
+                                      key={statusOption.value}
+                                      className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text-heading)]"
+                                    >
+                                      <span
+                                        className={`text-xs ${checked ? 'font-medium text-[var(--primary)]' : 'text-slate-500'
+                                          }`}
+                                      >
+                                        {statusOption.label}
+                                      </span>
+                                      <input
+                                        type="radio"
+                                        name={`attendance-${student.clientId}`}
+                                        value={statusOption.value}
+                                        checked={checked}
+                                        onChange={() =>
+                                          handleStatusChange(student.clientId, statusOption.value)
+                                        }
+                                        className="h-4 w-4 accent-[var(--primary)]"
+                                      />
+                                    </label>
+                                  )
+                                })}
+                              </div>
+                            </div>
+
+                            {isJustified && (
+                              <div className="mt-3 rounded-lg bg-slate-100 p-3">
+                                <div className="mb-2 flex items-center justify-between">
+                                  <p className="text-xs font-medium text-slate-500">Reposição:</p>
+                                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-[var(--text-heading)]">
                                     <input
-                                      type="radio"
-                                      name={`attendance-${student.clientId}`}
-                                      value={status.value}
-                                      checked={checked}
-                                      onChange={() =>
-                                        handleStatusChange(student.clientId, status.value)
+                                      type="checkbox"
+                                      checked={noReplacementMap[student.clientId] || false}
+                                      onChange={(e) =>
+                                        handleNoReplacementChange(student.clientId, e.target.checked)
                                       }
-                                      className="h-4 w-4 accent-[var(--primary)]"
+                                      className="h-3.5 w-3.5 rounded border-slate-300 text-[var(--primary)] accent-[var(--primary)]"
                                     />
-                                    <Icon
-                                      size={14}
-                                      className={`${
-                                        checked ? 'text-[var(--primary)]' : 'text-slate-300'
-                                      }`}
-                                    />
+                                    Não reagendar
                                   </label>
-                                </td>
-                              )
-                            })}
-                          </tr>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <select
+                                    value={replacementMap[student.clientId]?.week_day || student.weekDay}
+                                    onChange={(e) =>
+                                      handleReplacementChange(
+                                        student.clientId,
+                                        'week_day',
+                                        e.target.value,
+                                      )
+                                    }
+                                    disabled={noReplacementMap[student.clientId] || false}
+                                    className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)] disabled:bg-slate-100 disabled:text-slate-400"
+                                  >
+                                    {weekDayOptions.map((opt) => (
+                                      <option key={opt.value} value={opt.value}>
+                                        {opt.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <div className="relative">
+                                    <Clock
+                                      size={16}
+                                      className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                    />
+                                    <input
+                                      type="time"
+                                      value={replacementMap[student.clientId]?.training_time || ''}
+                                      onChange={(e) =>
+                                        handleReplacementChange(
+                                          student.clientId,
+                                          'training_time',
+                                          e.target.value,
+                                        )
+                                      }
+                                      disabled={noReplacementMap[student.clientId] || false}
+                                      className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 pl-9 text-sm outline-none focus:border-[var(--primary)] disabled:bg-slate-100 disabled:text-slate-400"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         )
-                      }),
-                    )}
-                  </tbody>
-                </table>
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
 
-              <div className="mt-6 flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="flex items-center gap-2 rounded-lg bg-[var(--primary)] px-6 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-dark)] disabled:opacity-70"
-                >
-                  <Save size={18} />
-                  {saving ? 'Salvando...' : 'Salvar presença'}
-                </button>
-              </div>
             </>
           )}
         </div>
-      ) : (
-        <div className="rounded-xl bg-[var(--surface)] p-8 text-center text-slate-500 shadow-sm">
-          Selecione um dia da semana para começar.
+      )}
+
+      {groupedStudents.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--border)] bg-[var(--surface)] p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] md:left-64">
+          <div className="mx-auto flex max-w-6xl justify-end">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-2 rounded-lg bg-[var(--primary)] px-6 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-dark)] disabled:opacity-70"
+            >
+              <Save size={18} />
+              {saving ? 'Salvando...' : 'Salvar presença'}
+            </button>
+          </div>
         </div>
       )}
     </div>

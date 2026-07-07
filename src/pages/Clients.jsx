@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Search, Pencil, Trash2, X, Phone, Calendar, Clock, Trash } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, X, Phone, Calendar, Clock, Trash, Stethoscope, Ban, Pill } from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { PageHeader } from '../components/PageHeader'
 import { Loading } from '../components/Loading'
@@ -9,10 +9,14 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 const emptyClient = {
   name: '',
   phone: '',
+  cpf: '',
   birth_date: '',
   start_date: '',
+  due_date: '',
   monthly_fee: '',
   observations: '',
+  chief_complaint: '',
+  goal: '',
   status: 'ativo',
 }
 
@@ -30,10 +34,113 @@ function getShortDay(value) {
   return weekDayOptions.find((d) => d.value === value)?.short || value
 }
 
+function calculateAge(birthDateString) {
+  if (!birthDateString) return null
+  const birthDate = new Date(birthDateString)
+  const today = new Date()
+
+  let years = today.getFullYear() - birthDate.getFullYear()
+  let months = today.getMonth() - birthDate.getMonth()
+
+  if (months < 0) {
+    years -= 1
+    months += 12
+  }
+
+  if (today.getDate() < birthDate.getDate()) {
+    months -= 1
+    if (months < 0) {
+      years -= 1
+      months += 12
+    }
+  }
+
+  if (years === 0 && months === 0) {
+    return '0 meses'
+  }
+  if (years === 0) {
+    return `${months} ${months === 1 ? 'mês' : 'meses'}`
+  }
+  if (months === 0) {
+    return `${years} ${years === 1 ? 'ano' : 'anos'}`
+  }
+  return `${years} ${years === 1 ? 'ano' : 'anos'}, ${months} ${months === 1 ? 'mês' : 'meses'}`
+}
+
+function formatPhone(value) {
+  if (!value) return ''
+  const digits = value.replace(/\D/g, '')
+  if (digits.length === 0) return ''
+  if (digits.length <= 2) {
+    return `(${digits}`
+  }
+  if (digits.length <= 7) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  }
+  if (digits.length <= 11) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+  }
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`
+}
+
+function normalizePhone(value) {
+  return value.replace(/\D/g, '').slice(0, 11)
+}
+
+function DynamicListSection({ title, icon, items, fieldName, placeholder, onAdd, onUpdate, onRemove }) {
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-slate-50 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-heading)]">
+          {icon}
+          {title}
+        </h4>
+        <button
+          type="button"
+          onClick={onAdd}
+          className="flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-xs font-medium text-[var(--primary)] shadow-sm hover:bg-slate-50"
+        >
+          <Plus size={14} />
+          Adicionar
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {items.length === 0 && (
+          <p className="text-xs text-slate-500">Nenhum registro cadastrado.</p>
+        )}
+        {items.map((item, index) => (
+          <div key={index} className="flex items-end gap-2">
+            <div className="flex-1">
+              <input
+                type="text"
+                value={item[fieldName]}
+                onChange={(e) => onUpdate(index, e.target.value)}
+                placeholder={placeholder}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => onRemove(index)}
+              className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-[var(--danger)]"
+            >
+              <Trash size={18} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function Clients() {
   const [clients, setClients] = useState([])
   const [contacts, setContacts] = useState([])
   const [trainingDays, setTrainingDays] = useState([])
+  const [diagnoses, setDiagnoses] = useState([])
+  const [restrictions, setRestrictions] = useState([])
+  const [medications, setMedications] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -44,6 +151,9 @@ export function Clients() {
   const [editingId, setEditingId] = useState(null)
   const [formContacts, setFormContacts] = useState([])
   const [formTrainingDays, setFormTrainingDays] = useState([])
+  const [formDiagnoses, setFormDiagnoses] = useState([])
+  const [formRestrictions, setFormRestrictions] = useState([])
+  const [formMedications, setFormMedications] = useState([])
   const [deleteId, setDeleteId] = useState(null)
 
   useEffect(() => {
@@ -54,19 +164,29 @@ export function Clients() {
     setLoading(true)
     setError('')
     try {
-      const [clientsRes, contactsRes, trainingRes] = await Promise.all([
-        supabase.from('clients').select('*').order('name', { ascending: true }),
-        supabase.from('contacts').select('*'),
-        supabase.from('training_days').select('*'),
-      ])
+      const [clientsRes, contactsRes, trainingRes, diagnosesRes, restrictionsRes, medicationsRes] =
+        await Promise.all([
+          supabase.from('clients').select('*').order('name', { ascending: true }),
+          supabase.from('contacts').select('*'),
+          supabase.from('training_days').select('*'),
+          supabase.from('diagnoses').select('*'),
+          supabase.from('restrictions').select('*'),
+          supabase.from('medications').select('*'),
+        ])
 
       if (clientsRes.error) throw clientsRes.error
       if (contactsRes.error) throw contactsRes.error
       if (trainingRes.error) throw trainingRes.error
+      if (diagnosesRes.error) throw diagnosesRes.error
+      if (restrictionsRes.error) throw restrictionsRes.error
+      if (medicationsRes.error) throw medicationsRes.error
 
       setClients(clientsRes.data || [])
       setContacts(contactsRes.data || [])
       setTrainingDays(trainingRes.data || [])
+      setDiagnoses(diagnosesRes.data || [])
+      setRestrictions(restrictionsRes.data || [])
+      setMedications(medicationsRes.data || [])
     } catch (err) {
       const detail = err?.message || err?.error_description || JSON.stringify(err)
       setError(`Erro ao carregar dados: ${detail}`)
@@ -90,8 +210,33 @@ export function Clients() {
     return trainingDays.filter((t) => t.client_id === clientId)
   }
 
+  function getClientDiagnoses(clientId) {
+    return diagnoses.filter((d) => d.client_id === clientId)
+  }
+
+  function getClientRestrictions(clientId) {
+    return restrictions.filter((r) => r.client_id === clientId)
+  }
+
+  function getClientMedications(clientId) {
+    return medications.filter((m) => m.client_id === clientId)
+  }
+
   function handleChange(e) {
     const { name, value } = e.target
+
+    if (name === 'due_date') {
+      const numeric = value.replace(/\D/g, '')
+      if (numeric === '') {
+        setForm((prev) => ({ ...prev, [name]: '' }))
+        return
+      }
+      const intValue = parseInt(numeric, 10)
+      if (intValue > 28) return
+      setForm((prev) => ({ ...prev, [name]: intValue.toString() }))
+      return
+    }
+
     setForm((prev) => ({ ...prev, [name]: value }))
   }
 
@@ -100,6 +245,9 @@ export function Clients() {
     setEditingId(null)
     setFormContacts([])
     setFormTrainingDays([])
+    setFormDiagnoses([])
+    setFormRestrictions([])
+    setFormMedications([])
     setShowForm(true)
   }
 
@@ -107,10 +255,14 @@ export function Clients() {
     setForm({
       name: client.name || '',
       phone: client.phone || '',
+      cpf: client.cpf || '',
       birth_date: client.birth_date || '',
       start_date: client.start_date || '',
+      due_date: client.due_date || '',
       monthly_fee: client.monthly_fee || '',
       observations: client.observations || '',
+      chief_complaint: client.chief_complaint || '',
+      goal: client.goal || '',
       status: client.status || 'ativo',
     })
     setEditingId(client.id)
@@ -126,8 +278,12 @@ export function Clients() {
         id: t.id,
         week_day: t.week_day || 'segunda',
         training_time: t.training_time ? t.training_time.slice(0, 5) : '',
+        provisional: t.provisional || false,
       })),
     )
+    setFormDiagnoses(getClientDiagnoses(client.id).map((d) => ({ id: d.id, diagnose: d.diagnose || '' })))
+    setFormRestrictions(getClientRestrictions(client.id).map((r) => ({ id: r.id, restriction: r.restriction || '' })))
+    setFormMedications(getClientMedications(client.id).map((m) => ({ id: m.id, medication: m.medication || '' })))
     setShowForm(true)
   }
 
@@ -150,7 +306,7 @@ export function Clients() {
   function addTrainingDay() {
     setFormTrainingDays((prev) => [
       ...prev,
-      { week_day: 'segunda', training_time: '' },
+      { week_day: 'segunda', training_time: '', provisional: false },
     ])
   }
 
@@ -164,18 +320,73 @@ export function Clients() {
     setFormTrainingDays((prev) => prev.filter((_, i) => i !== index))
   }
 
+  // Diagnósticos
+  function addDiagnose() {
+    setFormDiagnoses((prev) => [...prev, { diagnose: '' }])
+  }
+
+  function updateDiagnose(index, value) {
+    setFormDiagnoses((prev) =>
+      prev.map((d, i) => (i === index ? { ...d, diagnose: value } : d)),
+    )
+  }
+
+  function removeDiagnose(index) {
+    setFormDiagnoses((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // Restrições
+  function addRestriction() {
+    setFormRestrictions((prev) => [...prev, { restriction: '' }])
+  }
+
+  function updateRestriction(index, value) {
+    setFormRestrictions((prev) =>
+      prev.map((r, i) => (i === index ? { ...r, restriction: value } : r)),
+    )
+  }
+
+  function removeRestriction(index) {
+    setFormRestrictions((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // Medicações
+  function addMedication() {
+    setFormMedications((prev) => [...prev, { medication: '' }])
+  }
+
+  function updateMedication(index, value) {
+    setFormMedications((prev) =>
+      prev.map((m, i) => (i === index ? { ...m, medication: value } : m)),
+    )
+  }
+
+  function removeMedication(index) {
+    setFormMedications((prev) => prev.filter((_, i) => i !== index))
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setSaving(true)
     setError('')
 
+    if (form.due_date && (parseInt(form.due_date, 10) < 1 || parseInt(form.due_date, 10) > 28)) {
+      setError('O dia de vencimento deve estar entre 1 e 28.')
+      setSaving(false)
+      return
+    }
+
     const payload = {
       name: form.name,
       phone: form.phone || null,
+      cpf: form.cpf || null,
       birth_date: form.birth_date || null,
       start_date: form.start_date || null,
+      due_date: form.due_date ? parseInt(form.due_date, 10) : null,
       monthly_fee: form.monthly_fee ? parseFloat(form.monthly_fee) : null,
       observations: form.observations || null,
+      chief_complaint: form.chief_complaint || null,
+      goal: form.goal || null,
       status: form.status || 'ativo',
     }
 
@@ -233,6 +444,7 @@ export function Clients() {
           client_id: clientId,
           week_day: t.week_day,
           training_time: t.training_time + ':00',
+          provisional: t.provisional || false,
         }))
 
       if (trainingToInsert.length > 0) {
@@ -242,11 +454,74 @@ export function Clients() {
         if (trainingInsertError) throw trainingInsertError
       }
 
+      // Substitui diagnosticos
+      const { error: deleteDiagnosesError } = await supabase
+        .from('diagnoses')
+        .delete()
+        .eq('client_id', clientId)
+      if (deleteDiagnosesError) throw deleteDiagnosesError
+
+      const diagnosesToInsert = formDiagnoses
+        .filter((d) => d.diagnose.trim())
+        .map((d) => ({
+          client_id: clientId,
+          diagnose: d.diagnose.trim(),
+        }))
+      if (diagnosesToInsert.length > 0) {
+        const { error: diagnosesInsertError } = await supabase
+          .from('diagnoses')
+          .insert(diagnosesToInsert)
+        if (diagnosesInsertError) throw diagnosesInsertError
+      }
+
+      // Substitui restricoes
+      const { error: deleteRestrictionsError } = await supabase
+        .from('restrictions')
+        .delete()
+        .eq('client_id', clientId)
+      if (deleteRestrictionsError) throw deleteRestrictionsError
+
+      const restrictionsToInsert = formRestrictions
+        .filter((r) => r.restriction.trim())
+        .map((r) => ({
+          client_id: clientId,
+          restriction: r.restriction.trim(),
+        }))
+      if (restrictionsToInsert.length > 0) {
+        const { error: restrictionsInsertError } = await supabase
+          .from('restrictions')
+          .insert(restrictionsToInsert)
+        if (restrictionsInsertError) throw restrictionsInsertError
+      }
+
+      // Substitui medicacoes
+      const { error: deleteMedicationsError } = await supabase
+        .from('medications')
+        .delete()
+        .eq('client_id', clientId)
+      if (deleteMedicationsError) throw deleteMedicationsError
+
+      const medicationsToInsert = formMedications
+        .filter((m) => m.medication.trim())
+        .map((m) => ({
+          client_id: clientId,
+          medication: m.medication.trim(),
+        }))
+      if (medicationsToInsert.length > 0) {
+        const { error: medicationsInsertError } = await supabase
+          .from('medications')
+          .insert(medicationsToInsert)
+        if (medicationsInsertError) throw medicationsInsertError
+      }
+
       setShowForm(false)
       setForm(emptyClient)
       setEditingId(null)
       setFormContacts([])
       setFormTrainingDays([])
+      setFormDiagnoses([])
+      setFormRestrictions([])
+      setFormMedications([])
       await loadData()
     } catch (err) {
       const detail = err?.message || err?.error_description || JSON.stringify(err)
@@ -338,7 +613,7 @@ export function Clients() {
                 >
                   <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                     <div className="flex-1">
-                      <div className="mb-1 flex items-center gap-2">
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
                         <h3 className="font-semibold text-[var(--text-heading)]">
                           {client.name}
                         </h3>
@@ -351,13 +626,18 @@ export function Clients() {
                         >
                           {client.status === 'ativo' ? 'Ativo' : 'Inativo'}
                         </span>
+                        {client.birth_date && (
+                          <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                            {calculateAge(client.birth_date)}
+                          </span>
+                        )}
                       </div>
 
                       <div className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
                         <div>
                           <p className="text-xs text-slate-500">Telefone</p>
                           <p className="font-medium text-[var(--text-heading)]">
-                            {client.phone || '-'}
+                            {client.phone ? formatPhone(client.phone) : '-'}
                           </p>
                         </div>
                         <div>
@@ -388,6 +668,9 @@ export function Clients() {
                                       className="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-1 text-xs font-medium text-purple-700"
                                     >
                                       {getShortDay(d.week_day)} {time}
+                                      {d.provisional && (
+                                        <span className="ml-1 text-purple-500">(rep)</span>
+                                      )}
                                     </span>
                                   )
                                 })
@@ -409,7 +692,7 @@ export function Clients() {
                                   >
                                     <Phone size={12} />
                                     {c.name || 'Contato'}
-                                    {c.phone && `: ${c.phone}`}
+                                    {c.phone && `: ${formatPhone(c.phone)}`}
                                   </span>
                                 ))}
                               </div>
@@ -487,7 +770,24 @@ export function Clients() {
                   <input
                     type="tel"
                     name="phone"
-                    value={form.phone}
+                    value={formatPhone(form.phone)}
+                    onChange={(e) =>
+                      handleChange({
+                        target: { name: 'phone', value: normalizePhone(e.target.value) },
+                      })
+                    }
+                    maxLength={15}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                    CPF
+                  </label>
+                  <input
+                    type="text"
+                    name="cpf"
+                    value={form.cpf}
                     onChange={handleChange}
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
                   />
@@ -531,6 +831,21 @@ export function Clients() {
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
                   />
                 </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                    Dia de vencimento
+                  </label>
+                  <input
+                    type="number"
+                    name="due_date"
+                    value={form.due_date}
+                    onChange={handleChange}
+                    min={1}
+                    max={28}
+                    placeholder="1 a 28"
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
 
                 <div>
                   <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
@@ -545,19 +860,47 @@ export function Clients() {
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
                   />
                 </div>
+              </div>
+
+              <div className="grid gap-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                    Queixa principal
+                  </label>
+                  <textarea
+                    name="chief_complaint"
+                    value={form.chief_complaint}
+                    onChange={handleChange}
+                    rows={2}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                    Objetivo
+                  </label>
+                  <textarea
+                    name="goal"
+                    value={form.goal}
+                    onChange={handleChange}
+                    rows={2}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
                     Observações
                   </label>
-                  <input
-                    type="text"
+                  <textarea
                     name="observations"
                     value={form.observations}
                     onChange={handleChange}
+                    rows={2}
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
                   />
                 </div>
               </div>
+
               {/* Contatos */}
               <div className="rounded-xl border border-[var(--border)] bg-slate-50 p-4">
                 <div className="mb-3 flex items-center justify-between">
@@ -598,8 +941,9 @@ export function Clients() {
                         </label>
                         <input
                           type="tel"
-                          value={contact.phone}
-                          onChange={(e) => updateContact(index, 'phone', e.target.value)}
+                          value={formatPhone(contact.phone)}
+                          onChange={(e) => updateContact(index, 'phone', normalizePhone(e.target.value))}
+                          maxLength={15}
                           className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
                         />
                       </div>
@@ -637,55 +981,107 @@ export function Clients() {
                     <p className="text-xs text-slate-500">Nenhum dia de treino cadastrado.</p>
                   )}
                   {formTrainingDays.map((day, index) => (
-                    <div key={index} className="flex items-end gap-2">
-                      <div className="flex-1">
-                        <label className="mb-1 block text-xs font-medium text-slate-500">
-                          Dia da semana
-                        </label>
-                        <select
-                          value={day.week_day}
-                          onChange={(e) =>
-                            updateTrainingDay(index, 'week_day', e.target.value)
-                          }
-                          className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
-                        >
-                          {weekDayOptions.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="flex-1">
-                        <label className="mb-1 block text-xs font-medium text-slate-500">
-                          Horário
-                        </label>
-                        <div className="relative">
-                          <Clock
-                            size={16}
-                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                          />
-                          <input
-                            type="time"
-                            value={day.training_time}
+                    <div
+                      key={index}
+                      className="rounded-lg border border-[var(--border)] bg-white p-3"
+                    >
+                      <div className="mb-2 flex items-end gap-2">
+                        <div className="flex-1">
+                          <label className="mb-1 block text-xs font-medium text-slate-500">
+                            Dia da semana
+                          </label>
+                          <select
+                            value={day.week_day}
                             onChange={(e) =>
-                              updateTrainingDay(index, 'training_time', e.target.value)
+                              updateTrainingDay(index, 'week_day', e.target.value)
                             }
-                            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 pl-9 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
-                          />
+                            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                          >
+                            {weekDayOptions.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
                         </div>
+                        <div className="flex-1">
+                          <label className="mb-1 block text-xs font-medium text-slate-500">
+                            Horário
+                          </label>
+                          <div className="relative">
+                            <Clock
+                              size={16}
+                              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                            />
+                            <input
+                              type="time"
+                              value={day.training_time}
+                              onChange={(e) =>
+                                updateTrainingDay(index, 'training_time', e.target.value)
+                              }
+                              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 pl-9 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                            />
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeTrainingDay(index)}
+                          className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-[var(--danger)]"
+                        >
+                          <Trash size={18} />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => removeTrainingDay(index)}
-                        className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-[var(--danger)]"
-                      >
-                        <Trash size={18} />
-                      </button>
+                      <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text-heading)]">
+                        <input
+                          type="checkbox"
+                          checked={day.provisional || false}
+                          onChange={(e) =>
+                            updateTrainingDay(index, 'provisional', e.target.checked)
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-[var(--primary)] accent-[var(--primary)]"
+                        />
+                        Dia provisório (reposição)
+                      </label>
                     </div>
                   ))}
                 </div>
               </div>
+
+              {/* Diagnósticos */}
+              <DynamicListSection
+                title="Diagnósticos"
+                icon={<Stethoscope size={16} />}
+                items={formDiagnoses}
+                fieldName="diagnose"
+                placeholder="Digite o diagnóstico"
+                onAdd={addDiagnose}
+                onUpdate={(index, value) => updateDiagnose(index, value)}
+                onRemove={removeDiagnose}
+              />
+
+              {/* Restrições */}
+              <DynamicListSection
+                title="Restrições"
+                icon={<Ban size={16} />}
+                items={formRestrictions}
+                fieldName="restriction"
+                placeholder="Digite a restrição"
+                onAdd={addRestriction}
+                onUpdate={(index, value) => updateRestriction(index, value)}
+                onRemove={removeRestriction}
+              />
+
+              {/* Medicações */}
+              <DynamicListSection
+                title="Medicações"
+                icon={<Pill size={16} />}
+                items={formMedications}
+                fieldName="medication"
+                placeholder="Digite a medicação"
+                onAdd={addMedication}
+                onUpdate={(index, value) => updateMedication(index, value)}
+                onRemove={removeMedication}
+              />
 
               <div className="flex justify-end gap-3 pt-2">
                 <button

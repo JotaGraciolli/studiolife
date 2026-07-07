@@ -21,19 +21,20 @@ const cards = [
     color: 'bg-purple-50 text-purple-600',
   },
   {
-    label: 'Financeiro',
-    description: 'Movimentações',
-    icon: DollarSign,
-    path: '/financial',
-    color: 'bg-emerald-50 text-emerald-600',
-  },
-  {
     label: 'Presença',
     description: 'Lista de presença',
     icon: CalendarCheck,
     path: '/attendance',
     color: 'bg-amber-50 text-amber-600',
   },
+  {
+    label: 'Financeiro',
+    description: 'Movimentações',
+    icon: DollarSign,
+    path: '/financial',
+    color: 'bg-emerald-50 text-emerald-600',
+  },
+
 ]
 
 export function Dashboard() {
@@ -67,7 +68,7 @@ export function Dashboard() {
     <div>
       <div className="mb-8">
         <h1 className="text-2xl font-semibold text-[var(--text-heading)] md:text-3xl">
-          Bem-vindo ao StudioLife
+          SLM - StudioLife Management
         </h1>
         <p className="mt-1 text-sm text-slate-500 md:text-base">
           Gerencie seu estúdio de pilates em um só lugar.
