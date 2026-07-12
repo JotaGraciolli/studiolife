@@ -196,14 +196,17 @@ export function Birthdays() {
     const digits = client.phone.replace(/\D/g, '')
     const phoneWithCountry = `55${digits}`
 
-    const url =
-      'https://web.whatsapp.com/send/?phone=' +
-      encodeURIComponent(phoneWithCountry) +
-      '&text=' +
-      encodeURIComponent(message) +
-      '&type=phone_number&app_absent=0'
+    const encodedPhone = encodeURIComponent(phoneWithCountry)
+    const encodedMessage = encodeURIComponent(message).replace(/%20/g, '+')
+    const url = `https://api.whatsapp.com/send?phone=${encodedPhone}&text=${encodedMessage}`
 
-    window.open(url, '_blank')
+    const link = document.createElement('a')
+    link.href = url
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   return (
