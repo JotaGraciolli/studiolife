@@ -8,6 +8,8 @@ ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.diagnoses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.restrictions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.medications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.month_end_closing ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.message_templates ENABLE ROW LEVEL SECURITY;
 
 -- Remove policies antigas caso existam (para evitar duplicatas ao reexecutar)
 DROP POLICY IF EXISTS "Allow authenticated full access" ON public.clients;
@@ -19,6 +21,8 @@ DROP POLICY IF EXISTS "Allow authenticated full access" ON public.attendance;
 DROP POLICY IF EXISTS "Allow authenticated full access" ON public.diagnoses;
 DROP POLICY IF EXISTS "Allow authenticated full access" ON public.restrictions;
 DROP POLICY IF EXISTS "Allow authenticated full access" ON public.medications;
+DROP POLICY IF EXISTS "Allow authenticated full access" ON public.month_end_closing;
+DROP POLICY IF EXISTS "Allow authenticated full access" ON public.message_templates;
 
 -- Cria policies permitindo qualquer usuario autenticado
 CREATE POLICY "Allow authenticated full access" ON public.clients
@@ -46,4 +50,10 @@ CREATE POLICY "Allow authenticated full access" ON public.restrictions
   FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "Allow authenticated full access" ON public.medications
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+CREATE POLICY "Allow authenticated full access" ON public.month_end_closing
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+CREATE POLICY "Allow authenticated full access" ON public.message_templates
   FOR ALL TO authenticated USING (true) WITH CHECK (true);

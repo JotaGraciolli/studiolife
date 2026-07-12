@@ -66,3 +66,17 @@ input, select, textarea {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+.force-horizontal-scrollbar::-webkit-scrollbar {
+  height: 10px;
+}
+
+.force-horizontal-scrollbar::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 5px;
+}
+
+.force-horizontal-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 5px;
+}

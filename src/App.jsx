@@ -9,6 +9,9 @@ import { Clients } from './pages/Clients'
 import { Evaluations } from './pages/Evaluations'
 import { Financial } from './pages/Financial'
 import { Attendance } from './pages/Attendance'
+import { Birthdays } from './pages/Birthdays'
+import { WeeklySchedule } from './pages/WeeklySchedule'
+import { Settings } from './pages/Settings'
 
 function LoginRedirect() {
   const { isAuthenticated, loading } = useAuth()
@@ -66,6 +69,36 @@ function AppRoutes() {
           <RequireAuth>
             <Layout>
               <Attendance />
+            </Layout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/birthdays"
+        element={
+          <RequireAuth>
+            <Layout>
+              <Birthdays />
+            </Layout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/weekly-schedule"
+        element={
+          <RequireAuth>
+            <Layout>
+              <WeeklySchedule />
+            </Layout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <RequireAuth>
+            <Layout>
+              <Settings />
             </Layout>
           </RequireAuth>
         }

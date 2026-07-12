@@ -1,14 +1,57 @@
-import { useEffect, useState } from 'react'
-import { Plus, X, Trash2, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Plus,
+  X,
+  Trash2,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Calendar,
+} from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { PageHeader } from '../components/PageHeader'
 import { Loading } from '../components/Loading'
 import { ErrorMessage } from '../components/ErrorMessage'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 
+const monthOrder = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+function parseMonthLabel(label) {
+  if (!label) return null
+  const [monthShort, year] = label.split('/')
+  const monthIndex = monthOrder.indexOf(monthShort)
+  if (monthIndex === -1 || !year) return null
+  return new Date(parseInt(year, 10), monthIndex, 1)
+}
+
+function sortMonthsDescending(months) {
+  return [...months].sort((a, b) => {
+    const dateA = parseMonthLabel(a.month)
+    const dateB = parseMonthLabel(b.month)
+    if (!dateA || !dateB) return 0
+    return dateB.getTime() - dateA.getTime()
+  })
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  }).format(value || 0)
+}
+
+function formatDate(dateString) {
+  if (!dateString) return '-'
+  return new Date(dateString).toLocaleDateString('pt-BR')
+}
+
 export function Financial() {
   const [clients, setClients] = useState([])
+  const [months, setMonths] = useState([])
   const [transactions, setTransactions] = useState([])
+  const [selectedMonthId, setSelectedMonthId] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -17,36 +60,68 @@ export function Financial() {
     client_id: '',
     amount: '',
     type: 'entrada',
+    month_id: selectedMonthId,
   })
   const [deleteId, setDeleteId] = useState(null)
+  const [detailClientId, setDetailClientId] = useState(null)
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  const sortedMonths = useMemo(() => sortMonthsDescending(months), [months])
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const [clientsRes, financialRes] = await Promise.all([
+      const [clientsRes, monthsRes] = await Promise.all([
         supabase.from('clients').select('id, name').order('name'),
-        supabase
-          .from('financial')
-          .select('*, clients(name)')
-          .order('created_at', { ascending: false }),
+        supabase.from('month_end_closing').select('id, month'),
       ])
 
       if (clientsRes.error) throw clientsRes.error
-      if (financialRes.error) throw financialRes.error
+      if (monthsRes.error) throw monthsRes.error
 
       setClients(clientsRes.data || [])
-      setTransactions(financialRes.data || [])
+      const loadedMonths = monthsRes.data || []
+      setMonths(loadedMonths)
+
+      const ordered = sortMonthsDescending(loadedMonths)
+      if (ordered.length > 0 && !selectedMonthId) {
+        setSelectedMonthId(ordered[0].id)
+      }
     } catch (err) {
       const detail = err?.message || err?.error_description || JSON.stringify(err)
       setError(`Erro ao carregar financeiro: ${detail}`)
       console.error(err)
     } finally {
       setLoading(false)
+    }
+  }, [selectedMonthId])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  useEffect(() => {
+    if (selectedMonthId) {
+      loadTransactions(selectedMonthId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMonthId])
+
+  async function loadTransactions(monthId) {
+    if (!monthId) return
+    try {
+      const { data, error: supaError } = await supabase
+        .from('financial')
+        .select('*, clients(name)')
+        .eq('month_id', monthId)
+        .order('created_at', { ascending: false })
+
+      if (supaError) throw supaError
+      setTransactions(data || [])
+    } catch (err) {
+      const detail = err?.message || err?.error_description || JSON.stringify(err)
+      setError(`Erro ao carregar movimentações: ${detail}`)
+      console.error(err)
     }
   }
 
@@ -56,7 +131,7 @@ export function Financial() {
   }
 
   function openNew() {
-    setForm({ client_id: '', amount: '', type: 'entrada' })
+    setForm({ client_id: '', amount: '', type: 'entrada', month_id: selectedMonthId })
     setShowForm(true)
   }
 
@@ -68,6 +143,7 @@ export function Financial() {
     const value = parseFloat(form.amount)
     const payload = {
       client_id: form.client_id,
+      month_id: form.month_id || selectedMonthId,
       amount: form.type === 'saida' ? -Math.abs(value) : Math.abs(value),
     }
 
@@ -75,8 +151,8 @@ export function Financial() {
       const { error: supaError } = await supabase.from('financial').insert(payload)
       if (supaError) throw supaError
       setShowForm(false)
-      setForm({ client_id: '', amount: '', type: 'entrada' })
-      await loadData()
+      setForm({ client_id: '', amount: '', type: 'entrada', month_id: selectedMonthId })
+      await loadTransactions(selectedMonthId)
     } catch (err) {
       setError('Erro ao salvar movimentação.')
       console.error(err)
@@ -88,12 +164,9 @@ export function Financial() {
   async function handleDelete() {
     if (!deleteId) return
     try {
-      const { error: supaError } = await supabase
-        .from('financial')
-        .delete()
-        .eq('id', deleteId)
+      const { error: supaError } = await supabase.from('financial').delete().eq('id', deleteId)
       if (supaError) throw supaError
-      await loadData()
+      await loadTransactions(selectedMonthId)
     } catch (err) {
       setError('Erro ao excluir movimentação.')
       console.error(err)
@@ -102,14 +175,45 @@ export function Financial() {
     }
   }
 
+  function handleMonthChange(direction) {
+    const currentIndex = sortedMonths.findIndex((m) => m.id === selectedMonthId)
+    if (currentIndex === -1) return
+
+    const newIndex = direction === 'prev' ? currentIndex + 1 : currentIndex - 1
+    if (newIndex >= 0 && newIndex < sortedMonths.length) {
+      setSelectedMonthId(sortedMonths[newIndex].id)
+    }
+  }
+
+  function handleSelectMonth(e) {
+    setSelectedMonthId(e.target.value)
+  }
+
+  const groupedByClient = useMemo(() => {
+    const map = {}
+    transactions.forEach((transaction) => {
+      const clientId = transaction.client_id
+      const clientName = transaction.clients?.name || '-'
+      if (!map[clientId]) {
+        map[clientId] = { clientId, clientName, total: 0, transactions: [] }
+      }
+      map[clientId].total += transaction.amount || 0
+      map[clientId].transactions.push(transaction)
+    })
+    return Object.values(map).sort((a, b) => a.clientName.localeCompare(b.clientName))
+  }, [transactions])
+
   const total = transactions.reduce((sum, t) => sum + (t.amount || 0), 0)
+
+  const selectedMonth = sortedMonths.find((m) => m.id === selectedMonthId)
+  const detailClient = groupedByClient.find((g) => g.clientId === detailClientId)
 
   return (
     <div>
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <PageHeader
           title="Movimentação Financeira"
-          description="Controle entradas e saídas do estúdio."
+          description="Controle entradas e saídas do estúdio por mês."
         />
         <button
           type="button"
@@ -124,14 +228,52 @@ export function Financial() {
       <ErrorMessage message={error} />
 
       <div className="mb-6 rounded-xl bg-[var(--surface)] p-5 shadow-sm">
-        <p className="text-sm text-slate-500">Saldo total</p>
+        <p className="text-sm text-slate-500">Saldo total do mês</p>
         <p
           className={`text-3xl font-bold ${
             total >= 0 ? 'text-emerald-600' : 'text-[var(--danger)]'
           }`}
         >
-          R$ {total.toFixed(2)}
+          {formatCurrency(total)}
         </p>
+      </div>
+
+      <div className="mb-6 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => handleMonthChange('prev')}
+          disabled={sortedMonths.findIndex((m) => m.id === selectedMonthId) >= sortedMonths.length - 1}
+          className="rounded-lg border border-[var(--border)] bg-white p-2.5 text-[var(--text)] hover:bg-slate-50 disabled:opacity-40"
+        >
+          <ChevronLeft size={20} />
+        </button>
+
+        <div className="relative flex-1">
+          <Calendar
+            size={18}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+          />
+          <select
+            value={selectedMonthId}
+            onChange={handleSelectMonth}
+            className="w-full appearance-none rounded-lg border border-[var(--border)] bg-white py-2.5 pl-10 pr-10 text-sm font-medium text-[var(--text-heading)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+          >
+            {sortedMonths.map((month) => (
+              <option key={month.id} value={month.id}>
+                {month.month}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => handleMonthChange('next')}
+          disabled={sortedMonths.findIndex((m) => m.id === selectedMonthId) <= 0}
+          className="rounded-lg border border-[var(--border)] bg-white p-2.5 text-[var(--text)] hover:bg-slate-50 disabled:opacity-40"
+        >
+          <ChevronRight size={20} />
+        </button>
       </div>
 
       {loading ? (
@@ -142,67 +284,41 @@ export function Financial() {
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Data</th>
                   <th className="px-4 py-3 font-medium">Aluno</th>
-                  <th className="px-4 py-3 font-medium">Tipo</th>
                   <th className="px-4 py-3 font-medium text-right">Valor</th>
                   <th className="px-4 py-3 font-medium text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
-                {transactions.length === 0 ? (
+                {groupedByClient.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={5}
-                      className="px-4 py-8 text-center text-slate-500"
-                    >
-                      Nenhuma movimentação encontrada.
+                    <td colSpan={3} className="px-4 py-8 text-center text-slate-500">
+                      Nenhuma movimentação encontrada para {selectedMonth?.month || 'este mês'}.
                     </td>
                   </tr>
                 ) : (
-                  transactions.map((transaction) => {
-                    const isIncome = (transaction.amount || 0) >= 0
+                  groupedByClient.map((group) => {
+                    const isPositive = group.total >= 0
                     return (
-                      <tr key={transaction.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 text-slate-500">
-                          {new Date(transaction.created_at).toLocaleDateString('pt-BR')}
-                        </td>
+                      <tr key={group.clientId} className="hover:bg-slate-50">
                         <td className="px-4 py-3 font-medium text-[var(--text-heading)]">
-                          {transaction.clients?.name || '-'}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                              isIncome
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : 'bg-[var(--danger-bg)] text-[var(--danger)]'
-                            }`}
-                          >
-                            {isIncome ? (
-                              <>
-                                <ArrowDownCircle size={12} /> Entrada
-                              </>
-                            ) : (
-                              <>
-                                <ArrowUpCircle size={12} /> Saída
-                              </>
-                            )}
-                          </span>
+                          {group.clientName}
                         </td>
                         <td
                           className={`px-4 py-3 text-right font-medium ${
-                            isIncome ? 'text-emerald-600' : 'text-[var(--danger)]'
+                            isPositive ? 'text-emerald-600' : 'text-[var(--danger)]'
                           }`}
                         >
-                          R$ {Math.abs(transaction.amount || 0).toFixed(2)}
+                          {formatCurrency(group.total)}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button
                             type="button"
-                            onClick={() => setDeleteId(transaction.id)}
-                            className="rounded-lg p-2 text-slate-500 hover:bg-[var(--danger-bg)] hover:text-[var(--danger)]"
+                            onClick={() => setDetailClientId(group.clientId)}
+                            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-[var(--primary)]"
+                            title="Ver detalhes"
                           >
-                            <Trash2 size={16} />
+                            <Eye size={16} />
                           </button>
                         </td>
                       </tr>
@@ -232,6 +348,26 @@ export function Financial() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                  Mês <span className="text-[var(--danger)]">*</span>
+                </label>
+                <select
+                  name="month_id"
+                  value={form.month_id}
+                  onChange={handleChange}
+                  required
+                  className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                >
+                  <option value="">Selecione um mês</option>
+                  {sortedMonths.map((month) => (
+                    <option key={month.id} value={month.id}>
+                      {month.month}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
                   Aluno <span className="text-[var(--danger)]">*</span>
@@ -266,7 +402,7 @@ export function Financial() {
                       onChange={handleChange}
                       className="accent-emerald-600"
                     />
-                    Entrada
+                    Crédito
                   </label>
                   <label className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2 text-sm has-[:checked]:border-[var(--danger)] has-[:checked]:bg-[var(--danger-bg)] has-[:checked]:text-[var(--danger)]">
                     <input
@@ -277,7 +413,7 @@ export function Financial() {
                       onChange={handleChange}
                       className="accent-[var(--danger)]"
                     />
-                    Saída
+                    Débito
                   </label>
                 </div>
               </div>
@@ -315,6 +451,101 @@ export function Financial() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {detailClientId && detailClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-xl bg-[var(--surface)] p-6 shadow-lg">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[var(--text-heading)]">
+                Detalhes: {detailClient.clientName}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDetailClientId(null)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="overflow-hidden rounded-lg border border-[var(--border)]">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Data</th>
+                    <th className="px-4 py-3 font-medium">Tipo</th>
+                    <th className="px-4 py-3 font-medium text-right">Valor</th>
+                    <th className="px-4 py-3 font-medium text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border)]">
+                  {detailClient.transactions
+                    .slice()
+                    .sort(
+                      (a, b) =>
+                        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+                    )
+                    .map((transaction) => {
+                      const isIncome = (transaction.amount || 0) >= 0
+                      return (
+                        <tr key={transaction.id} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 text-slate-500">
+                            {formatDate(transaction.created_at)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                isIncome
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-[var(--danger-bg)] text-[var(--danger)]'
+                              }`}
+                            >
+                              {isIncome ? (
+                                <>
+                                  <ArrowDownCircle size={12} /> Crédito
+                                </>
+                              ) : (
+                                <>
+                                  <ArrowUpCircle size={12} /> Débito
+                                </>
+                              )}
+                            </span>
+                          </td>
+                          <td
+                            className={`px-4 py-3 text-right font-medium ${
+                              isIncome ? 'text-emerald-600' : 'text-[var(--danger)]'
+                            }`}
+                          >
+                            {formatCurrency(transaction.amount)}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => setDeleteId(transaction.id)}
+                              className="rounded-lg p-2 text-slate-500 hover:bg-[var(--danger-bg)] hover:text-[var(--danger)]"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setDetailClientId(null)}
+                className="rounded-lg border border-[var(--border)] bg-white px-4 py-2 text-sm font-medium text-[var(--text)] hover:bg-slate-50"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}

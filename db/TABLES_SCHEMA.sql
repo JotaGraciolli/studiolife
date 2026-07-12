@@ -64,8 +64,10 @@ CREATE TABLE public.financial (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   client_id uuid,
   amount real,
+  month_id uuid,
   CONSTRAINT financial_pkey PRIMARY KEY (id),
-  CONSTRAINT financial_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id)
+  CONSTRAINT financial_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id),
+  CONSTRAINT financial_month_id_fkey FOREIGN KEY (month_id) REFERENCES public.month_end_closing(id)
 );
 CREATE TABLE public.attendance (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -98,4 +100,19 @@ CREATE TABLE public.medications (
   medication text,
   CONSTRAINT medications_pkey PRIMARY KEY (id),
   CONSTRAINT medications_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id)
+);
+CREATE TABLE public.month_end_closing (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  month text UNIQUE,
+  CONSTRAINT month_end_closing_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.message_templates (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  category text,
+  title text,
+  message text,
+  is_active boolean,
+  CONSTRAINT message_templates_pkey PRIMARY KEY (id)
 );

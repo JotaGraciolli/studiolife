@@ -5,6 +5,8 @@ import {
   ClipboardList,
   DollarSign,
   CalendarCheck,
+  Cake,
+  Settings,
   Menu,
   X,
   LogOut,
@@ -19,6 +21,8 @@ const navItems = [
   { path: '/evaluations', label: 'Avaliações', icon: ClipboardList },
   { path: '/financial', label: 'Financeiro', icon: DollarSign },
   { path: '/attendance', label: 'Presença', icon: CalendarCheck },
+  { path: '/birthdays', label: 'Aniversariantes', icon: Cake },
+  { path: '/settings', label: 'Configurações', icon: Settings },
 ]
 
 export function Layout({ children }) {
@@ -41,9 +45,13 @@ export function Layout({ children }) {
       {/* Sidebar desktop */}
       <aside className="hidden w-64 flex-col border-r border-[var(--border)] bg-[var(--surface)] md:flex">
         <div className="flex h-16 items-center gap-2 border-b border-[var(--border)] px-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--primary)] text-white">
-            <span className="text-sm font-bold">SL</span>
-          </div>
+          <Link to="/" className="flex h-8 w-8 shrink-0 rounded-lg">
+            <img
+              src="/favicon.svg"
+              alt="StudioLife"
+              className="h-8 w-8 rounded-lg object-contain"
+            />
+          </Link>
           <span className="text-lg font-semibold text-[var(--text-heading)]">
             StudioLife
           </span>
@@ -90,9 +98,13 @@ export function Layout({ children }) {
       {/* Header mobile */}
       <header className="flex h-16 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 md:hidden">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--primary)] text-white">
-            <span className="text-sm font-bold">SL</span>
-          </div>
+          <Link to="/" className="flex h-8 w-8 shrink-0 rounded-lg">
+            <img
+              src="/favicon.svg"
+              alt="StudioLife"
+              className="h-8 w-8 rounded-lg object-contain"
+            />
+          </Link>
           <span className="text-lg font-semibold text-[var(--text-heading)]">
             StudioLife
           </span>

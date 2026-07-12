@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Plus, Search, Pencil, Trash2, X, Phone, Calendar, Clock, Trash, Stethoscope, Ban, Pill } from 'lucide-react'
+import { Plus, Search, Pencil, X, Phone, Calendar, Clock, Trash, Stethoscope, Ban, Pill, UserX, UserCheck } from 'lucide-react'
 import { supabase } from '../services/supabase'
+import { isEvaluationPending } from '../utils/evaluation'
 import { PageHeader } from '../components/PageHeader'
 import { Loading } from '../components/Loading'
 import { ErrorMessage } from '../components/ErrorMessage'
@@ -154,7 +155,8 @@ export function Clients() {
   const [formDiagnoses, setFormDiagnoses] = useState([])
   const [formRestrictions, setFormRestrictions] = useState([])
   const [formMedications, setFormMedications] = useState([])
-  const [deleteId, setDeleteId] = useState(null)
+  const [toggleStatusId, setToggleStatusId] = useState(null)
+  const [evaluations, setEvaluations] = useState([])
 
   useEffect(() => {
     loadData()
@@ -164,7 +166,7 @@ export function Clients() {
     setLoading(true)
     setError('')
     try {
-      const [clientsRes, contactsRes, trainingRes, diagnosesRes, restrictionsRes, medicationsRes] =
+      const [clientsRes, contactsRes, trainingRes, diagnosesRes, restrictionsRes, medicationsRes, evaluationsRes] =
         await Promise.all([
           supabase.from('clients').select('*').order('name', { ascending: true }),
           supabase.from('contacts').select('*'),
@@ -172,6 +174,7 @@ export function Clients() {
           supabase.from('diagnoses').select('*'),
           supabase.from('restrictions').select('*'),
           supabase.from('medications').select('*'),
+          supabase.from('evaluations').select('id, client_id, created_at'),
         ])
 
       if (clientsRes.error) throw clientsRes.error
@@ -180,6 +183,7 @@ export function Clients() {
       if (diagnosesRes.error) throw diagnosesRes.error
       if (restrictionsRes.error) throw restrictionsRes.error
       if (medicationsRes.error) throw medicationsRes.error
+      if (evaluationsRes.error) throw evaluationsRes.error
 
       setClients(clientsRes.data || [])
       setContacts(contactsRes.data || [])
@@ -187,6 +191,7 @@ export function Clients() {
       setDiagnoses(diagnosesRes.data || [])
       setRestrictions(restrictionsRes.data || [])
       setMedications(medicationsRes.data || [])
+      setEvaluations(evaluationsRes.data || [])
     } catch (err) {
       const detail = err?.message || err?.error_description || JSON.stringify(err)
       setError(`Erro ao carregar dados: ${detail}`)
@@ -204,6 +209,10 @@ export function Clients() {
 
   function getClientContacts(clientId) {
     return contacts.filter((c) => c.client_id === clientId)
+  }
+
+  function getClientEvaluations(clientId) {
+    return evaluations.filter((e) => e.client_id === clientId)
   }
 
   function getClientTrainingDays(clientId) {
@@ -532,21 +541,24 @@ export function Clients() {
     }
   }
 
-  async function handleDelete() {
-    if (!deleteId) return
+  async function handleToggleStatus() {
+    if (!toggleStatusId) return
+    const client = clients.find((c) => c.id === toggleStatusId)
+    if (!client) return
+    const newStatus = client.status === 'ativo' ? 'inativo' : 'ativo'
     try {
       const { error: supaError } = await supabase
         .from('clients')
-        .delete()
-        .eq('id', deleteId)
+        .update({ status: newStatus })
+        .eq('id', toggleStatusId)
       if (supaError) throw supaError
       await loadData()
     } catch (err) {
       const detail = err?.message || err?.error_description || JSON.stringify(err)
-      setError(`Erro ao excluir aluno: ${detail}`)
+      setError(`Erro ao ${newStatus === 'inativo' ? 'inativar' : 'reativar'} aluno: ${detail}`)
       console.error(err)
     } finally {
-      setDeleteId(null)
+      setToggleStatusId(null)
     }
   }
 
@@ -606,6 +618,7 @@ export function Clients() {
             filteredClients.map((client) => {
               const clientContacts = getClientContacts(client.id)
               const clientTraining = getClientTrainingDays(client.id)
+              const clientEvaluations = getClientEvaluations(client.id)
               return (
                 <div
                   key={client.id}
@@ -629,6 +642,11 @@ export function Clients() {
                         {client.birth_date && (
                           <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
                             {calculateAge(client.birth_date)}
+                          </span>
+                        )}
+                        {isEvaluationPending(clientEvaluations) && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                            Avaliação pendente
                           </span>
                         )}
                       </div>
@@ -714,14 +732,25 @@ export function Clients() {
                         <Pencil size={16} />
                         Editar
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteId(client.id)}
-                        className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--danger-bg)] bg-[var(--danger-bg)] px-4 py-2 text-sm font-medium text-[var(--danger)] hover:bg-red-100 md:flex-initial"
-                      >
-                        <Trash2 size={16} />
-                        Excluir
-                      </button>
+                      {client.status === 'ativo' ? (
+                        <button
+                          type="button"
+                          onClick={() => setToggleStatusId(client.id)}
+                          className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--danger-bg)] bg-[var(--danger-bg)] px-4 py-2 text-sm font-medium text-[var(--danger)] hover:bg-red-100 md:flex-initial"
+                        >
+                          <UserX size={16} />
+                          Inativar
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setToggleStatusId(client.id)}
+                          className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 md:flex-initial"
+                        >
+                          <UserCheck size={16} />
+                          Reativar
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1105,11 +1134,15 @@ export function Clients() {
       )}
 
       <ConfirmDialog
-        open={!!deleteId}
-        title="Excluir aluno"
-        message="Tem certeza que deseja excluir este aluno? Esta ação não pode ser desfeita."
-        onConfirm={handleDelete}
-        onCancel={() => setDeleteId(null)}
+        open={!!toggleStatusId}
+        title={clients.find((c) => c.id === toggleStatusId)?.status === 'ativo' ? 'Inativar aluno' : 'Reativar aluno'}
+        message={
+          clients.find((c) => c.id === toggleStatusId)?.status === 'ativo'
+            ? 'Tem certeza que deseja inativar este aluno? O registro será mantido e poderá ser reativado posteriormente.'
+            : 'Tem certeza que deseja reativar este aluno? Ele voltará a aparecer nas listagens padrão.'
+        }
+        onConfirm={handleToggleStatus}
+        onCancel={() => setToggleStatusId(null)}
       />
     </div>
   )

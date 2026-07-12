@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, XCircle, HelpCircle, Save, Calendar, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { CheckCircle2, XCircle, HelpCircle, Save, Calendar, Clock, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
 import { supabase } from '../services/supabase'
+import { isEvaluationPending } from '../utils/evaluation'
 import { PageHeader } from '../components/PageHeader'
 import { Loading } from '../components/Loading'
 import { ErrorMessage } from '../components/ErrorMessage'
@@ -53,6 +55,7 @@ export function Attendance() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [evaluationsMap, setEvaluationsMap] = useState({})
 
   useEffect(() => {
     loadStudentsForDay(selectedDay, selectedDate)
@@ -120,7 +123,9 @@ export function Attendance() {
       setReplacementMap(initialReplacement)
       setNoReplacementMap(initialNoReplacement)
 
-      await loadExistingAttendance(Object.keys(initialMap), date)
+      const clientIds = Object.keys(initialMap)
+      await loadExistingAttendance(clientIds, date)
+      await loadEvaluations(clientIds)
     } catch (err) {
       const detail = err?.message || err?.error_description || JSON.stringify(err)
       setError(`Erro ao carregar alunos: ${detail}`)
@@ -191,6 +196,32 @@ export function Attendance() {
       })
       setReplacementMap((prev) => ({ ...prev, ...replacements }))
     }
+  }
+
+  async function loadEvaluations(clientIds) {
+    if (clientIds.length === 0) {
+      setEvaluationsMap({})
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('evaluations')
+      .select('client_id, created_at')
+      .in('client_id', clientIds)
+
+    if (error) {
+      console.error('Erro ao carregar avaliações:', error)
+      return
+    }
+
+    const map = {}
+    data.forEach((record) => {
+      if (!map[record.client_id]) {
+        map[record.client_id] = []
+      }
+      map[record.client_id].push(record)
+    })
+    setEvaluationsMap(map)
   }
 
   function changeDate(days) {
@@ -360,6 +391,13 @@ export function Attendance() {
         <span className="ml-2 text-sm font-medium text-[var(--text-heading)]">
           {selectedDayLabel?.full}
         </span>
+        <Link
+          to="/weekly-schedule"
+          className="ml-auto flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-dark)]"
+        >
+          <CalendarDays size={18} />
+          Programação semanal
+        </Link>
       </div>
 
       {loading ? (
@@ -394,9 +432,16 @@ export function Attendance() {
                           >
                             <div className="flex items-start justify-between gap-4">
                               <div className="flex flex-col">
-                                <span className="text-base font-medium text-[var(--text-heading)]">
-                                  {student.clientName}
-                                </span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-base font-medium text-[var(--text-heading)]">
+                                    {student.clientName}
+                                  </span>
+                                  {isEvaluationPending(evaluationsMap[student.clientId]) && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                                      Avaliação pendente
+                                    </span>
+                                  )}
+                                </div>
                                 {student.provisional && (
                                   <span className="text-xs text-purple-600">(reposição)</span>
                                 )}

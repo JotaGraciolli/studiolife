@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, ClipboardList, DollarSign, CalendarCheck, Activity } from 'lucide-react'
+import { Users, ClipboardList, DollarSign, CalendarCheck, Activity, Cake } from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { Loading } from '../components/Loading'
 import { ErrorMessage } from '../components/ErrorMessage'
@@ -34,17 +34,26 @@ const cards = [
     path: '/financial',
     color: 'bg-emerald-50 text-emerald-600',
   },
-
+  {
+    label: 'Aniversariantes',
+    description: 'Aniversariantes do mês e da semana',
+    icon: Cake,
+    path: '/birthdays',
+    color: 'bg-pink-50 text-pink-600',
+  },
 ]
 
 export function Dashboard() {
   const [activeCount, setActiveCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const closingChecked = useRef(false)
 
   useEffect(() => {
     async function loadActiveClients() {
       try {
+        await ensureMonthEndClosing()
+
         const { count, error: supaError } = await supabase
           .from('clients')
           .select('*', { count: 'exact', head: true })
@@ -63,6 +72,93 @@ export function Dashboard() {
 
     loadActiveClients()
   }, [])
+
+  async function ensureMonthEndClosing() {
+    const today = new Date()
+    const currentDay = today.getDate()
+
+    if (currentDay < 10) return
+
+    const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+    const monthLabel = `${monthNames[today.getMonth()]}/${today.getFullYear()}`
+
+    try {
+      if (closingChecked.current) return
+      closingChecked.current = true
+
+      let { data: existing, error: findError } = await supabase
+        .from('month_end_closing')
+        .select('id')
+        .eq('month', monthLabel)
+        .order('created_at', { ascending: false })
+        .maybeSingle()
+
+      if (findError) throw findError
+
+      let monthId = existing?.id
+
+      if (!monthId) {
+        try {
+          const { data: inserted, error: insertError } = await supabase
+            .from('month_end_closing')
+            .insert({ month: monthLabel })
+            .select('id')
+            .single()
+
+          if (insertError) throw insertError
+          monthId = inserted?.id
+        } catch (insertErr) {
+          // Se outra execução paralela já criou o registro (violação de UNIQUE),
+          // buscamos o registro existente.
+          if (insertErr?.code === '23505') {
+            const { data: retryExisting, error: retryError } = await supabase
+              .from('month_end_closing')
+              .select('id')
+              .eq('month', monthLabel)
+              .order('created_at', { ascending: false })
+              .maybeSingle()
+
+            if (retryError) throw retryError
+            monthId = retryExisting?.id
+          } else {
+            throw insertErr
+          }
+        }
+      }
+
+      if (!monthId) return
+
+      const { data: activeClients, error: clientsError } = await supabase
+        .from('clients')
+        .select('id, monthly_fee')
+        .eq('status', 'ativo')
+
+      if (clientsError) throw clientsError
+
+      const { data: existingTransactions, error: transactionsError } = await supabase
+        .from('financial')
+        .select('client_id')
+        .eq('month_id', monthId)
+
+      if (transactionsError) throw transactionsError
+
+      const existingClientIds = new Set((existingTransactions || []).map((t) => t.client_id))
+      const newTransactions = (activeClients || [])
+        .filter((client) => !existingClientIds.has(client.id) && client.monthly_fee)
+        .map((client) => ({
+          client_id: client.id,
+          month_id: monthId,
+          amount: -Math.abs(client.monthly_fee),
+        }))
+
+      if (newTransactions.length > 0) {
+        const { error: bulkError } = await supabase.from('financial').insert(newTransactions)
+        if (bulkError) throw bulkError
+      }
+    } catch (err) {
+      console.error('Erro ao verificar fechamento mensal:', err)
+    }
+  }
 
   return (
     <div>
