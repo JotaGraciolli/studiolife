@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Cake, Calendar, Phone, Clock, Gift } from 'lucide-react'
+import { Cake, Calendar, Phone, Clock, Gift, X } from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { PageHeader } from '../components/PageHeader'
 import { Loading } from '../components/Loading'
@@ -129,6 +129,10 @@ export function Birthdays() {
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('month')
   const [birthdayTemplate, setBirthdayTemplate] = useState(null)
+  const [showPhoneModal, setShowPhoneModal] = useState(false)
+  const [phoneClient, setPhoneClient] = useState(null)
+  const [phoneValue, setPhoneValue] = useState('')
+  const [phoneSaving, setPhoneSaving] = useState(false)
 
   useEffect(() => {
     async function loadClients() {
@@ -184,12 +188,7 @@ export function Birthdays() {
     })
   }, [filteredClients])
 
-  async function handleBirthdayClick(client) {
-    if (!client.phone) {
-      setError(`${client.name} não possui telefone cadastrado.`)
-      return
-    }
-
+  function sendWhatsAppMessage(client) {
     let message = birthdayTemplate?.message || 'Parabéns, {{ALUNO}}! Feliz aniversário! 🎉'
     message = message.replace(/\{\{ALUNO\}\}/g, getFirstName(client.name))
 
@@ -207,6 +206,67 @@ export function Birthdays() {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+  }
+
+  function openPhoneModal(client) {
+    setPhoneClient(client)
+    setPhoneValue(formatPhone(client.phone || ''))
+    setShowPhoneModal(true)
+  }
+
+  function closePhoneModal() {
+    setShowPhoneModal(false)
+    setPhoneClient(null)
+    setPhoneValue('')
+  }
+
+  function handlePhoneChange(e) {
+    setPhoneValue(formatPhone(e.target.value))
+  }
+
+  async function handleSavePhone(e) {
+    e.preventDefault()
+    if (!phoneClient) return
+
+    const digits = phoneValue.replace(/\D/g, '')
+    if (!digits) {
+      setError('Informe um número de telefone válido.')
+      return
+    }
+
+    setPhoneSaving(true)
+    setError('')
+
+    try {
+      const { error: supaError } = await supabase
+        .from('clients')
+        .update({ phone: digits })
+        .eq('id', phoneClient.id)
+
+      if (supaError) throw supaError
+
+      setClients((prev) =>
+        prev.map((c) => (c.id === phoneClient.id ? { ...c, phone: digits } : c)),
+      )
+
+      closePhoneModal()
+      sendWhatsAppMessage({ ...phoneClient, phone: digits })
+    } catch (err) {
+      const detail = err?.message || err?.error_description || JSON.stringify(err)
+      setError(`Erro ao salvar telefone: ${detail}`)
+      console.error(err)
+    } finally {
+      setPhoneSaving(false)
+    }
+  }
+
+  function handleBirthdayClick(client) {
+    if (!client.phone) {
+      openPhoneModal(client)
+      return
+    }
+
+    sendWhatsAppMessage(client)
   }
 
   return (
@@ -341,6 +401,68 @@ export function Birthdays() {
             </div>
           )}
         </>
+      )}
+
+      {showPhoneModal && phoneClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-[var(--surface)] p-6 shadow-lg">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[var(--text-heading)]">
+                Ooops!
+              </h3>
+              <button
+                type="button"
+                onClick={closePhoneModal}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="mb-4 text-sm text-[var(--text)]">
+              <span className="font-semibold">{phoneClient.name}</span> não possui um número cadastrado. Deseja incluir agora?
+            </p>
+
+            <form onSubmit={handleSavePhone} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                  Telefone <span className="text-[var(--danger)]">*</span>
+                </label>
+                <div className="relative">
+                  <Phone
+                    size={18}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    type="tel"
+                    value={phoneValue}
+                    onChange={handlePhoneChange}
+                    placeholder="(00) 00000-0000"
+                    required
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 pl-10 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closePhoneModal}
+                  className="rounded-lg border border-[var(--border)] bg-white px-4 py-2 text-sm font-medium text-[var(--text)] hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={phoneSaving}
+                  className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-dark)] disabled:opacity-70"
+                >
+                  {phoneSaving ? 'Salvando...' : 'Salvar e enviar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   )

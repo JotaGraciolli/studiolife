@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle2, XCircle, HelpCircle, Save, Calendar, Clock, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
+import { CheckCircle2, XCircle, HelpCircle, Save, Calendar, Clock, ChevronLeft, ChevronRight, CalendarDays, MessageSquare, X, Phone } from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { isEvaluationPending } from '../utils/evaluation'
 import { PageHeader } from '../components/PageHeader'
@@ -44,6 +44,19 @@ function addDays(dateString, days) {
   return date.toISOString().split('T')[0]
 }
 
+function formatPhone(value) {
+  if (!value) return ''
+  const digits = value.replace(/\D/g, '').slice(0, 11)
+  if (digits.length <= 2) return `(${digits}`
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+}
+
+function getFirstName(fullName) {
+  if (!fullName) return ''
+  return fullName.trim().split(' ')[0]
+}
+
 export function Attendance() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [selectedDay, setSelectedDay] = useState(getDayOfWeek(new Date().toISOString().split('T')[0]))
@@ -56,11 +69,35 @@ export function Attendance() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [evaluationsMap, setEvaluationsMap] = useState({})
+  const [absenceTemplate, setAbsenceTemplate] = useState(null)
+  const [showPhoneModal, setShowPhoneModal] = useState(false)
+  const [phoneStudent, setPhoneStudent] = useState(null)
+  const [phoneValue, setPhoneValue] = useState('')
+  const [phoneSaving, setPhoneSaving] = useState(false)
 
   useEffect(() => {
     loadStudentsForDay(selectedDay, selectedDate)
+    loadAbsenceTemplate()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function loadAbsenceTemplate() {
+    try {
+      const { data, error: supaError } = await supabase
+        .from('message_templates')
+        .select('*')
+        .ilike('category', 'Ausência')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (supaError) throw supaError
+      setAbsenceTemplate(data)
+    } catch (err) {
+      console.error('Erro ao carregar template de ausência:', err)
+    }
+  }
 
   async function loadStudentsForDay(day, date) {
     setSelectedDay(day)
@@ -73,7 +110,7 @@ export function Attendance() {
     try {
       const { data: trainingData, error: trainingError } = await supabase
         .from('training_days')
-        .select('id, training_time, week_day, provisional, client_id, clients(id, name, status)')
+        .select('id, training_time, week_day, provisional, client_id, clients(id, name, status, phone)')
         .eq('week_day', day)
         .eq('clients.status', 'ativo')
         .order('training_time', { ascending: true })
@@ -93,6 +130,7 @@ export function Attendance() {
             trainingDayId: item.id,
             clientId: item.client_id,
             clientName: item.clients?.name || 'Aluno não encontrado',
+            phone: item.clients?.phone || '',
             trainingTime: time,
             weekDay: item.week_day,
             provisional: item.provisional || false,
@@ -222,6 +260,92 @@ export function Attendance() {
       map[record.client_id].push(record)
     })
     setEvaluationsMap(map)
+  }
+
+  function sendWhatsAppMessage(student) {
+    let message = absenceTemplate?.message || 'Olá {{ALUNO}}, vimos que você faltou hoje. Tudo bem?'
+    message = message.replace(/\{\{ALUNO\}\}/g, getFirstName(student.clientName))
+
+    const digits = student.phone.replace(/\D/g, '')
+    const phoneWithCountry = `55${digits}`
+
+    const encodedPhone = encodeURIComponent(phoneWithCountry)
+    const encodedMessage = encodeURIComponent(message).replace(/%20/g, '+')
+    const url = `https://api.whatsapp.com/send?phone=${encodedPhone}&text=${encodedMessage}`
+
+    const link = document.createElement('a')
+    link.href = url
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  function openPhoneModal(student) {
+    setPhoneStudent(student)
+    setPhoneValue(formatPhone(student.phone || ''))
+    setShowPhoneModal(true)
+  }
+
+  function closePhoneModal() {
+    setShowPhoneModal(false)
+    setPhoneStudent(null)
+    setPhoneValue('')
+  }
+
+  function handlePhoneChange(e) {
+    setPhoneValue(formatPhone(e.target.value))
+  }
+
+  async function handleSavePhone(e) {
+    e.preventDefault()
+    if (!phoneStudent) return
+
+    const digits = phoneValue.replace(/\D/g, '')
+    if (!digits) {
+      setError('Informe um número de telefone válido.')
+      return
+    }
+
+    setPhoneSaving(true)
+    setError('')
+
+    try {
+      const { error: supaError } = await supabase
+        .from('clients')
+        .update({ phone: digits })
+        .eq('id', phoneStudent.clientId)
+
+      if (supaError) throw supaError
+
+      setGroupedStudents((prev) =>
+        prev.map((group) => ({
+          ...group,
+          students: group.students.map((s) =>
+            s.clientId === phoneStudent.clientId ? { ...s, phone: digits } : s,
+          ),
+        })),
+      )
+
+      closePhoneModal()
+      sendWhatsAppMessage({ ...phoneStudent, phone: digits })
+    } catch (err) {
+      const detail = err?.message || err?.error_description || JSON.stringify(err)
+      setError(`Erro ao salvar telefone: ${detail}`)
+      console.error(err)
+    } finally {
+      setPhoneSaving(false)
+    }
+  }
+
+  function handleAbsenceMessageClick(student) {
+    if (!student.phone) {
+      openPhoneModal(student)
+      return
+    }
+
+    sendWhatsAppMessage(student)
   }
 
   function changeDate(days) {
@@ -445,6 +569,16 @@ export function Attendance() {
                                 {student.provisional && (
                                   <span className="text-xs text-purple-600">(reposição)</span>
                                 )}
+                                {status === 'ausente' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAbsenceMessageClick(student)}
+                                    className="mt-1 flex h-7 w-7 items-center justify-center rounded-md bg-[var(--primary-light)] text-[var(--primary)] transition-colors hover:bg-[var(--primary)] hover:text-white"
+                                    title="Enviar mensagem sobre ausência"
+                                  >
+                                    <MessageSquare size={14} />
+                                  </button>
+                                )}
                               </div>
 
                               <div className="flex flex-col items-end gap-2">
@@ -559,6 +693,68 @@ export function Attendance() {
               <Save size={18} />
               {saving ? 'Salvando...' : 'Salvar presença'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {showPhoneModal && phoneStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-[var(--surface)] p-6 shadow-lg">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[var(--text-heading)]">
+                Ooops!
+              </h3>
+              <button
+                type="button"
+                onClick={closePhoneModal}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="mb-4 text-sm text-[var(--text)]">
+              <span className="font-semibold">{phoneStudent.clientName}</span> não possui um número cadastrado. Deseja incluir agora?
+            </p>
+
+            <form onSubmit={handleSavePhone} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                  Telefone <span className="text-[var(--danger)]">*</span>
+                </label>
+                <div className="relative">
+                  <Phone
+                    size={18}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    type="tel"
+                    value={phoneValue}
+                    onChange={handlePhoneChange}
+                    placeholder="(00) 00000-0000"
+                    required
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 pl-10 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closePhoneModal}
+                  className="rounded-lg border border-[var(--border)] bg-white px-4 py-2 text-sm font-medium text-[var(--text)] hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={phoneSaving}
+                  className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-dark)] disabled:opacity-70"
+                >
+                  {phoneSaving ? 'Salvando...' : 'Salvar e enviar'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

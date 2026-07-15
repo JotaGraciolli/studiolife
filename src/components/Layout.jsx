@@ -47,7 +47,7 @@ export function Layout({ children }) {
         <div className="flex h-16 items-center gap-2 border-b border-[var(--border)] px-6">
           <Link to="/" className="flex h-8 w-8 shrink-0 rounded-lg">
             <img
-              src="/favicon.svg"
+              src="/logo.png"
               alt="StudioLife"
               className="h-8 w-8 rounded-lg object-contain"
             />
@@ -100,7 +100,7 @@ export function Layout({ children }) {
         <div className="flex items-center gap-2">
           <Link to="/" className="flex h-8 w-8 shrink-0 rounded-lg">
             <img
-              src="/favicon.svg"
+              src="/logo.png"
               alt="StudioLife"
               className="h-8 w-8 rounded-lg object-contain"
             />

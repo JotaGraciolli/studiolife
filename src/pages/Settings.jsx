@@ -13,6 +13,8 @@ const emptyTemplate = {
   is_active: true,
 }
 
+const categories = ['Aniversário', 'Ausência', 'Cobrança']
+
 function formatCharacterCount(value) {
   const count = value?.length || 0
   return `${new Intl.NumberFormat('pt-BR').format(count)} caracteres`
@@ -296,16 +298,22 @@ export function Settings() {
 
               <div>
                 <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
-                  Categoria
+                  Categoria <span className="text-[var(--danger)]">*</span>
                 </label>
-                <input
-                  type="text"
+                <select
                   name="category"
                   value={form.category}
                   onChange={handleChange}
-                  placeholder="Ex: Cobrança, Aniversário"
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
-                />
+                  required
+                  className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                >
+                  <option value="">Selecione uma categoria</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>

@@ -1,0 +1,115 @@
+Table clients {
+  id uuid [primary key, default: `gen_random_uuid()`]
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [default: `now()`]
+  name text
+  phone text
+  birth_date date
+  start_date date
+  monthly_fee real
+  observations text
+  status text
+  cpf text
+  chief_complaint text
+  goal text
+  due_date smallint
+}
+
+Table evaluations {
+  id uuid [primary key, default: `gen_random_uuid()`]
+  created_at timestamp [not null, default: `now()`]
+  client_id uuid
+  weight real
+  height real
+  torax real
+  waist real
+  abdomen real
+  hip real
+  forearm_left real
+  forearm_right real
+  arm_left real
+  arm_right real
+  thigh_left real
+  thigh_right real
+  calf_left real
+  calf_right real
+  progress_notes text
+}
+
+Table contacts {
+  id uuid [primary key, default: `gen_random_uuid()`]
+  created_at timestamp [not null, default: `now()`]
+  client_id uuid
+  name text
+  phone text
+}
+
+Table training_days {
+  id uuid [primary key, default: `gen_random_uuid()`]
+  created_at timestamp [not null, default: `now()`]
+  client_id uuid
+  week_day text
+  training_time time
+  provisional boolean [default: false]
+}
+
+Table financial {
+  id uuid [primary key, default: `gen_random_uuid()`]
+  created_at timestamp [not null, default: `now()`]
+  client_id uuid
+  amount real
+  month_id uuid
+}
+
+Table attendance {
+  id uuid [primary key, default: `gen_random_uuid()`]
+  created_at timestamp [not null, default: `now()`]
+  client_id uuid
+  status text
+}
+
+Table diagnoses {
+  id uuid [primary key, default: `gen_random_uuid()`]
+  created_at timestamp [not null, default: `now()`]
+  client_id uuid
+  diagnose text
+}
+
+Table restrictions {
+  id uuid [primary key, default: `gen_random_uuid()`]
+  created_at timestamp [not null, default: `now()`]
+  client_id uuid
+  restriction text
+}
+
+Table medications {
+  id uuid [primary key, default: `gen_random_uuid()`]
+  created_at timestamp [not null, default: `now()`]
+  client_id uuid
+  medication text
+}
+
+Table month_end_closing {
+  id uuid [primary key, default: `gen_random_uuid()`]
+  created_at timestamp [not null, default: `now()`]
+  month text [unique]
+}
+
+Table message_templates {
+  id uuid [primary key, default: `gen_random_uuid()`]
+  created_at timestamp [not null, default: `now()`]
+  category text
+  title text
+  message text
+  is_active boolean
+}
+
+Ref: evaluations.client_id > clients.id
+Ref: contacts.client_id > clients.id
+Ref: training_days.client_id > clients.id
+Ref: financial.client_id > clients.id
+Ref: financial.month_id > month_end_closing.id
+Ref: attendance.client_id > clients.id
+Ref: diagnoses.client_id > clients.id
+Ref: restrictions.client_id > clients.id
+Ref: medications.client_id > clients.id

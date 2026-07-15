@@ -1040,16 +1040,26 @@ export function Clients() {
                           <div className="relative">
                             <Clock
                               size={16}
-                              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                             />
-                            <input
-                              type="time"
+                            <select
                               value={day.training_time}
                               onChange={(e) =>
                                 updateTrainingDay(index, 'training_time', e.target.value)
                               }
-                              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 pl-9 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
-                            />
+                              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 pl-9 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                            >
+                              <option value="">Selecione</option>
+                              {Array.from({ length: 24 }, (_, i) => {
+                                const hour = String(i).padStart(2, '0')
+                                const value = `${hour}:00`
+                                return (
+                                  <option key={value} value={value}>
+                                    {value}
+                                  </option>
+                                )
+                              })}
+                            </select>
                           </div>
                         </div>
                         <button
