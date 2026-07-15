@@ -12,6 +12,8 @@ import { Attendance } from './pages/Attendance'
 import { Birthdays } from './pages/Birthdays'
 import { WeeklySchedule } from './pages/WeeklySchedule'
 import { Settings } from './pages/Settings'
+import { MessageTemplates } from './pages/MessageTemplates'
+import { ContractSettings } from './pages/ContractSettings'
 
 function LoginRedirect() {
   const { isAuthenticated, loading } = useAuth()
@@ -99,6 +101,26 @@ function AppRoutes() {
           <RequireAuth>
             <Layout>
               <Settings />
+            </Layout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/message-templates"
+        element={
+          <RequireAuth>
+            <Layout>
+              <MessageTemplates />
+            </Layout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/contract-settings"
+        element={
+          <RequireAuth>
+            <Layout>
+              <ContractSettings />
             </Layout>
           </RequireAuth>
         }

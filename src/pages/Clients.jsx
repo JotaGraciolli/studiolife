@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Search, Pencil, X, Phone, Calendar, Clock, Trash, Stethoscope, Ban, Pill, UserX, UserCheck } from 'lucide-react'
+import { Plus, Search, Pencil, X, Phone, Calendar, Clock, Trash, Stethoscope, Ban, Pill, UserX, UserCheck, MapPin } from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { isEvaluationPending } from '../utils/evaluation'
 import { PageHeader } from '../components/PageHeader'
@@ -19,6 +19,18 @@ const emptyClient = {
   chief_complaint: '',
   goal: '',
   status: 'ativo',
+  address_id: null,
+}
+
+const emptyAddress = {
+  street: '',
+  number: '',
+  complement: '',
+  neighborhood: '',
+  city: '',
+  state: '',
+  country: 'Brasil',
+  cep: '',
 }
 
 const weekDayOptions = [
@@ -88,6 +100,31 @@ function normalizePhone(value) {
   return value.replace(/\D/g, '').slice(0, 11)
 }
 
+function formatCEP(value) {
+  if (!value) return ''
+  const digits = value.replace(/\D/g, '').slice(0, 8)
+  if (digits.length <= 5) return digits
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`
+}
+
+function normalizeCEP(value) {
+  return value.replace(/\D/g, '').slice(0, 8)
+}
+
+function formatAddress(address) {
+  if (!address) return null
+  const parts = [
+    address.street,
+    address.number,
+    address.complement,
+    address.neighborhood,
+    address.city && address.state ? `${address.city} - ${address.state}` : address.city || address.state,
+  ].filter(Boolean)
+  const cep = address.cep ? `CEP: ${formatCEP(address.cep)}` : null
+  if (parts.length === 0 && !cep) return null
+  return [...parts, cep].filter(Boolean).join(', ')
+}
+
 function DynamicListSection({ title, icon, items, fieldName, placeholder, onAdd, onUpdate, onRemove }) {
   return (
     <div className="rounded-xl border border-[var(--border)] bg-slate-50 p-4">
@@ -142,6 +179,7 @@ export function Clients() {
   const [diagnoses, setDiagnoses] = useState([])
   const [restrictions, setRestrictions] = useState([])
   const [medications, setMedications] = useState([])
+  const [addresses, setAddresses] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -155,6 +193,9 @@ export function Clients() {
   const [formDiagnoses, setFormDiagnoses] = useState([])
   const [formRestrictions, setFormRestrictions] = useState([])
   const [formMedications, setFormMedications] = useState([])
+  const [formAddress, setFormAddress] = useState(emptyAddress)
+  const [showAddressModal, setShowAddressModal] = useState(false)
+  const [editingAddressId, setEditingAddressId] = useState(null)
   const [toggleStatusId, setToggleStatusId] = useState(null)
   const [evaluations, setEvaluations] = useState([])
 
@@ -166,7 +207,7 @@ export function Clients() {
     setLoading(true)
     setError('')
     try {
-      const [clientsRes, contactsRes, trainingRes, diagnosesRes, restrictionsRes, medicationsRes, evaluationsRes] =
+      const [clientsRes, contactsRes, trainingRes, diagnosesRes, restrictionsRes, medicationsRes, evaluationsRes, addressesRes] =
         await Promise.all([
           supabase.from('clients').select('*').order('name', { ascending: true }),
           supabase.from('contacts').select('*'),
@@ -175,6 +216,7 @@ export function Clients() {
           supabase.from('restrictions').select('*'),
           supabase.from('medications').select('*'),
           supabase.from('evaluations').select('id, client_id, created_at'),
+          supabase.from('address').select('*'),
         ])
 
       if (clientsRes.error) throw clientsRes.error
@@ -184,6 +226,7 @@ export function Clients() {
       if (restrictionsRes.error) throw restrictionsRes.error
       if (medicationsRes.error) throw medicationsRes.error
       if (evaluationsRes.error) throw evaluationsRes.error
+      if (addressesRes.error) throw addressesRes.error
 
       setClients(clientsRes.data || [])
       setContacts(contactsRes.data || [])
@@ -192,6 +235,7 @@ export function Clients() {
       setRestrictions(restrictionsRes.data || [])
       setMedications(medicationsRes.data || [])
       setEvaluations(evaluationsRes.data || [])
+      setAddresses(addressesRes.data || [])
     } catch (err) {
       const detail = err?.message || err?.error_description || JSON.stringify(err)
       setError(`Erro ao carregar dados: ${detail}`)
@@ -231,6 +275,12 @@ export function Clients() {
     return medications.filter((m) => m.client_id === clientId)
   }
 
+  function getClientAddress(clientId) {
+    const client = clients.find((c) => c.id === clientId)
+    if (!client?.address_id) return null
+    return addresses.find((a) => a.id === client.address_id) || null
+  }
+
   function handleChange(e) {
     const { name, value } = e.target
 
@@ -257,6 +307,8 @@ export function Clients() {
     setFormDiagnoses([])
     setFormRestrictions([])
     setFormMedications([])
+    setFormAddress(emptyAddress)
+    setEditingAddressId(null)
     setShowForm(true)
   }
 
@@ -273,8 +325,28 @@ export function Clients() {
       chief_complaint: client.chief_complaint || '',
       goal: client.goal || '',
       status: client.status || 'ativo',
+      address_id: client.address_id || null,
     })
     setEditingId(client.id)
+
+    const clientAddress = getClientAddress(client.id)
+    if (clientAddress) {
+      setFormAddress({
+        street: clientAddress.street || '',
+        number: clientAddress.number || '',
+        complement: clientAddress.complement || '',
+        neighborhood: clientAddress.neighborhood || '',
+        city: clientAddress.city || '',
+        state: clientAddress.state || '',
+        country: clientAddress.country || 'Brasil',
+        cep: clientAddress.cep || '',
+      })
+      setEditingAddressId(clientAddress.id)
+    } else {
+      setFormAddress(emptyAddress)
+      setEditingAddressId(null)
+    }
+
     setFormContacts(
       getClientContacts(client.id).map((c) => ({
         id: c.id,
@@ -374,6 +446,39 @@ export function Clients() {
     setFormMedications((prev) => prev.filter((_, i) => i !== index))
   }
 
+  function openAddressModal() {
+    setShowAddressModal(true)
+  }
+
+  function closeAddressModal() {
+    setShowAddressModal(false)
+  }
+
+  function handleAddressChange(e) {
+    const { name, value } = e.target
+    if (name === 'cep') {
+      setFormAddress((prev) => ({ ...prev, [name]: normalizeCEP(value) }))
+      return
+    }
+    if (name === 'state') {
+      setFormAddress((prev) => ({ ...prev, [name]: value.toUpperCase().slice(0, 2) }))
+      return
+    }
+    setFormAddress((prev) => ({ ...prev, [name]: value }))
+  }
+
+  function hasAddressFilled() {
+    return (
+      formAddress.street.trim() ||
+      formAddress.number.trim() ||
+      formAddress.complement.trim() ||
+      formAddress.neighborhood.trim() ||
+      formAddress.city.trim() ||
+      formAddress.state.trim() ||
+      formAddress.cep.trim()
+    )
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     setSaving(true)
@@ -384,6 +489,19 @@ export function Clients() {
       setSaving(false)
       return
     }
+
+    const addressPayload = {
+      street: formAddress.street.trim() || null,
+      number: formAddress.number.trim() || null,
+      complement: formAddress.complement.trim() || null,
+      neighborhood: formAddress.neighborhood.trim() || null,
+      city: formAddress.city.trim() || null,
+      state: formAddress.state.trim() || null,
+      country: 'Brasil',
+      cep: formAddress.cep.trim() || null,
+    }
+
+    const hasAddress = hasAddressFilled()
 
     const payload = {
       name: form.name,
@@ -400,6 +518,30 @@ export function Clients() {
     }
 
     try {
+      let addressId = editingAddressId
+
+      if (hasAddress) {
+        if (editingAddressId) {
+          const { error: addressUpdateError } = await supabase
+            .from('address')
+            .update(addressPayload)
+            .eq('id', editingAddressId)
+          if (addressUpdateError) throw addressUpdateError
+        } else {
+          const { data: newAddress, error: addressInsertError } = await supabase
+            .from('address')
+            .insert(addressPayload)
+            .select('id')
+            .single()
+          if (addressInsertError) throw addressInsertError
+          addressId = newAddress.id
+        }
+      }
+
+      if (addressId) {
+        payload.address_id = addressId
+      }
+
       let clientId = editingId
 
       if (editingId) {
@@ -524,6 +666,7 @@ export function Clients() {
       }
 
       setShowForm(false)
+      setShowAddressModal(false)
       setForm(emptyClient)
       setEditingId(null)
       setFormContacts([])
@@ -531,6 +674,8 @@ export function Clients() {
       setFormDiagnoses([])
       setFormRestrictions([])
       setFormMedications([])
+      setFormAddress(emptyAddress)
+      setEditingAddressId(null)
       await loadData()
     } catch (err) {
       const detail = err?.message || err?.error_description || JSON.stringify(err)
@@ -619,6 +764,8 @@ export function Clients() {
               const clientContacts = getClientContacts(client.id)
               const clientTraining = getClientTrainingDays(client.id)
               const clientEvaluations = getClientEvaluations(client.id)
+              const clientAddress = getClientAddress(client.id)
+              const addressText = formatAddress(clientAddress)
               return (
                 <div
                   key={client.id}
@@ -697,8 +844,14 @@ export function Clients() {
                         </div>
                       </div>
 
-                      {(clientContacts.length > 0 || client.observations) && (
+                      {(clientContacts.length > 0 || client.observations || addressText) && (
                         <div className="mt-3 border-t border-[var(--border)] pt-3 text-sm">
+                          {addressText && (
+                            <div className="mb-2">
+                              <p className="text-xs text-slate-500">Endereço</p>
+                              <p className="font-medium text-[var(--text-heading)]">{addressText}</p>
+                            </div>
+                          )}
                           {clientContacts.length > 0 && (
                             <div className="mb-2">
                               <p className="text-xs text-slate-500">Contatos</p>
@@ -889,6 +1042,29 @@ export function Clients() {
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
                   />
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-[var(--border)] bg-slate-50 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h4 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-heading)]">
+                    <MapPin size={16} />
+                    Endereço
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={openAddressModal}
+                    className="flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-xs font-medium text-[var(--primary)] shadow-sm hover:bg-slate-50"
+                  >
+                    <Pencil size={14} />
+                    {hasAddressFilled() ? 'Editar endereço' : 'Adicionar endereço'}
+                  </button>
+                </div>
+
+                {hasAddressFilled() ? (
+                  <p className="text-sm text-[var(--text)]">{formatAddress(formAddress)}</p>
+                ) : (
+                  <p className="text-xs text-slate-500">Nenhum endereço cadastrado.</p>
+                )}
               </div>
 
               <div className="grid gap-4">
@@ -1136,6 +1312,146 @@ export function Clients() {
                   className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-dark)] disabled:opacity-70"
                 >
                   {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showAddressModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-[var(--surface)] p-6 shadow-lg">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[var(--text-heading)]">
+                {editingAddressId ? 'Editar endereço' : 'Adicionar endereço'}
+              </h3>
+              <button
+                type="button"
+                onClick={closeAddressModal}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                closeAddressModal()
+              }}
+              className="space-y-4"
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                    Rua
+                  </label>
+                  <input
+                    type="text"
+                    name="street"
+                    value={formAddress.street}
+                    onChange={handleAddressChange}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                    Número
+                  </label>
+                  <input
+                    type="text"
+                    name="number"
+                    value={formAddress.number}
+                    onChange={handleAddressChange}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                    Complemento
+                  </label>
+                  <input
+                    type="text"
+                    name="complement"
+                    value={formAddress.complement}
+                    onChange={handleAddressChange}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                    Bairro
+                  </label>
+                  <input
+                    type="text"
+                    name="neighborhood"
+                    value={formAddress.neighborhood}
+                    onChange={handleAddressChange}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                    Cidade
+                  </label>
+                  <input
+                    type="text"
+                    name="city"
+                    value={formAddress.city}
+                    onChange={handleAddressChange}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                    Estado
+                  </label>
+                  <input
+                    type="text"
+                    name="state"
+                    value={formAddress.state}
+                    onChange={handleAddressChange}
+                    maxLength={2}
+                    placeholder="UF"
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm uppercase outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                    CEP
+                  </label>
+                  <input
+                    type="text"
+                    name="cep"
+                    value={formatCEP(formAddress.cep)}
+                    onChange={handleAddressChange}
+                    maxLength={9}
+                    placeholder="00000-000"
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeAddressModal}
+                  className="rounded-lg border border-[var(--border)] bg-white px-4 py-2 text-sm font-medium text-[var(--text)] hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-dark)]"
+                >
+                  Salvar endereço
                 </button>
               </div>
             </form>

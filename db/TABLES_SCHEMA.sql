@@ -16,7 +16,9 @@ CREATE TABLE public.clients (
   chief_complaint text,
   goal text,
   due_date smallint,
-  CONSTRAINT clients_pkey PRIMARY KEY (id)
+  address_id uuid,
+  CONSTRAINT clients_pkey PRIMARY KEY (id),
+  CONSTRAINT clients_address_id_fkey FOREIGN KEY (address_id) REFERENCES public.address(id)
 );
 CREATE TABLE public.evaluations (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -115,4 +117,27 @@ CREATE TABLE public.message_templates (
   message text,
   is_active boolean,
   CONSTRAINT message_templates_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.contract_settings (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  file_name text,
+  file_path text,
+  file_size integer,
+  content_type text,
+  CONSTRAINT contract_settings_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.address (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  street text,
+  number text,
+  complement text,
+  neighborhood text,
+  city text,
+  state text,
+  cep text,
+  country text,
+  CONSTRAINT address_pkey PRIMARY KEY (id)
 );
