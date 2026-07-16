@@ -1,6 +1,6 @@
 # StudioLife Pilates
 
-Aplicação web completa para gerenciamento de estúdio de pilates. O sistema permite controlar alunos, avaliações, finanças, presença, programação semanal, aniversariantes e modelos de mensagens, com integração ao WhatsApp para comunicação rápida.
+Aplicação web completa para gerenciamento de estúdio de pilates. O sistema permite controlar alunos, avaliações, finanças, presença, programação semanal, aniversariantes, modelos de mensagens e contratos, com integração ao WhatsApp para comunicação rápida.
 
 ## Arquitetura
 
@@ -30,11 +30,12 @@ O StudioLife é uma Single Page Application (SPA) desenvolvida com React e empac
 
 ### Alunos
 
-- Lista todos os alunos cadastrados com busca por nome e filtro para exibir ou ocultar inativos.
-- Cada card exibe nome, idade, telefone mascarado, dias de treino, contatos, diagnósticos, restrições, medicações, observações e badge de avaliação pendente.
-- Permite inativar ou reativar o aluno sem excluir o registro (apenas altera o campo `status`).
-- Cadastro/edição com dados pessoais (nome, telefone, CPF, data de nascimento, data de início, mensalidade, dia de vencimento, queixa principal, objetivo e observações).
+- Lista todos os alunos cadastrados com busca por nome e filtro para exibir ou ocultar inativos. Alunos pausados aparecem sempre na listagem.
+- Cada card exibe nome, idade, telefone mascarado, endereço, dias de treino, contatos, diagnósticos, restrições, medicações, observações, status e badge de avaliação pendente.
+- Cadastro/edição com dados pessoais (nome, telefone, CPF, data de nascimento, data de início, mensalidade, queixa principal, objetivo, observações e status: Ativo, Inativo ou Pausado).
+- Modal de endereço com CEP formatado (Rua, Número, Complemento, Bairro, Cidade, Estado).
 - Seções dinâmicas para contatos, dias de treino (com horários inteiros e flag de dia provisório), diagnósticos, restrições e medicações.
+- Regra automática: ao atingir 3 faltas no mesmo mês, o aluno é pausado automaticamente e deixa de aparecer na lista de presença e na programação semanal.
 
 ### Avaliações
 
@@ -61,7 +62,7 @@ O StudioLife é uma Single Page Application (SPA) desenvolvida com React e empac
 - Para faltas justificadas, permite agendar reposição informando dia e horário, ou marcar "Não reagendar".
 - Dias de treino provisórios são removidos automaticamente ao registrar falta justificada com reposição.
 - Botão de acesso à Programação Semanal.
-- Quando o status é "Ausente", exibe ícone de mensagem para enviar uma mensagem de ausência via WhatsApp, usando template ativo da categoria "Ausência" e substituindo `{{ALUNO}}`.
+- Quando o status é "Ausente", exibe badge laranja com a quantidade de faltas do aluno no mês e ícone de mensagem para enviar uma mensagem de ausência via WhatsApp, usando template ativo da categoria "Ausência" e substituindo `{{ALUNO}}`.
 - Validação de telefone igual às demais telas: abre modal para cadastro se necessário.
 
 ### Programação Semanal
@@ -81,10 +82,22 @@ O StudioLife é uma Single Page Application (SPA) desenvolvida com React e empac
 
 ### Configurações
 
+- Área de configurações com acesso a duas funcionalidades: **Templates de Mensagens** e **Contratos**.
+
+#### Templates de Mensagens
+
 - Cadastro, edição e inativação de modelos de mensagens.
-- Categorias fixas: Aniversário, Ausência e Cobrança.
+- Categorias: Aniversário, Ausência, Cobrança e Contrato.
 - Campo de mensagem grande com contador de caracteres no formato `#.##0 caracteres`.
 - Botão "ALUNO" que insere o placeholder `{{ALUNO}}` no ponto do cursor.
+
+#### Contratos
+
+- Upload do modelo de contrato em `.docx` com os placeholders `{{ALUNO}}`, `{{CPF}}`, `{{ENDERECO}}`, `{{FREQUENCIA}}`, `{{DIAS_HORARIOS}}` e `{{MENSALIDADE}}`.
+- Área de geração de contrato com seletor de alunos ativos (com busca por nome).
+- **Baixar contrato**: se o aluno já possui contrato assinado vinculado, faz o download do arquivo; caso contrário, gera o PDF a partir do modelo com as substituições.
+- **Enviar mensagem de contrato**: busca o template ativo da categoria "Contrato", substitui `{{ALUNO}}` pelo primeiro nome e abre o WhatsApp.
+- **Upload de contrato assinado**: envia um PDF para o Supabase Storage vinculado ao aluno, com confirmação de substituição se já existir um contrato.
 
 ## Tecnologias
 
@@ -93,15 +106,17 @@ O StudioLife é uma Single Page Application (SPA) desenvolvida com React e empac
 - React Router DOM 7
 - Tailwind CSS 4
 - Lucide React (ícones)
-- Supabase (Auth + PostgreSQL)
+- Supabase (Auth + PostgreSQL + Storage)
+- docxtemplater, docx-preview, html2canvas e jsPDF para geração de contratos em PDF
 - Deploy no Netlify
 
 ## Configuração do Supabase
 
 1. Crie um projeto em [https://supabase.com](https://supabase.com).
 2. No SQL Editor, execute o conteúdo do arquivo `db/TABLES_SCHEMA.sql` para criar as tabelas.
-3. Execute também o arquivo `db/rls_policies.sql` para habilitar RLS e criar as policies de acesso.
-4. Copie a **Project URL** e a **anon public** API key do menu **Settings > API**.
+3. Execute também o arquivo `db/rls_policies.sql` para habilitar RLS, criar as policies de acesso e configurar os buckets de Storage.
+4. Se o projeto já possui dados em produção, execute os scripts da pasta `db/migrations/` na ordem numérica para aplicar alterações incrementais.
+5. Copie a **Project URL** e a **anon public** API key do menu **Settings > API**.
 
 ## Autenticação
 
@@ -154,8 +169,8 @@ src/
   components/     # Componentes reutilizáveis (Layout, Loading, PageHeader, etc.)
   context/        # Contextos (AuthContext)
   hooks/          # Hooks customizados (useAuth)
-  pages/          # Dashboard, Clients, Evaluations, Financial, Attendance, Birthdays, WeeklySchedule, Settings
-  services/       # Cliente Supabase
+  pages/          # Dashboard, Clients, Evaluations, Financial, Attendance, Birthdays, WeeklySchedule, Settings, MessageTemplates, ContractSettings
+  services/       # Cliente Supabase e serviço de geração de contratos
   utils/          # Funções utilitárias compartilhadas
   App.jsx         # Rotas da aplicação
   main.jsx        # Ponto de entrada
@@ -164,10 +179,11 @@ db/
   rls_policies.sql
   schema.dbml
   StudioLifeDiagram.svg
+  migrations/     # Scripts de migração do banco
 ```
 
 ## Schema do banco
 
 Veja os arquivos `db/TABLES_SCHEMA.sql` e `db/schema.dbml`. O diagrama completo está disponível abaixo:
 
-![Diagrama do banco de dados](db/StudioLifeDiagram.svg)
+![Diagrama do banco de dados](db/StudioLifeDiagram.png)
