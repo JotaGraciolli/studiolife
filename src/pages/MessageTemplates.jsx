@@ -14,7 +14,7 @@ const emptyTemplate = {
   is_active: true,
 }
 
-const categories = ['Aniversário', 'Ausência', 'Cobrança']
+const categories = ['Aniversário', 'Ausência', 'Cobrança', 'Contrato']
 
 function formatCharacterCount(value) {
   const count = value?.length || 0

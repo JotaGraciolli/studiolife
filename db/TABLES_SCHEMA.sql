@@ -15,7 +15,6 @@ CREATE TABLE public.clients (
   cpf text,
   chief_complaint text,
   goal text,
-  due_date smallint,
   address_id uuid,
   CONSTRAINT clients_pkey PRIMARY KEY (id),
   CONSTRAINT clients_address_id_fkey FOREIGN KEY (address_id) REFERENCES public.address(id)
@@ -140,4 +139,16 @@ CREATE TABLE public.address (
   cep text,
   country text,
   CONSTRAINT address_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.client_contracts (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  client_id uuid,
+  file_name text,
+  file_path text,
+  file_size integer,
+  content_type text,
+  CONSTRAINT client_contracts_pkey PRIMARY KEY (id),
+  CONSTRAINT client_contracts_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id)
 );

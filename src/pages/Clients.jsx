@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Plus, Search, Pencil, X, Phone, Calendar, Clock, Trash, Stethoscope, Ban, Pill, UserX, UserCheck, MapPin } from 'lucide-react'
+import { Plus, Search, Pencil, X, Phone, Calendar, Clock, Trash, Stethoscope, Ban, Pill, MapPin } from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { isEvaluationPending } from '../utils/evaluation'
 import { PageHeader } from '../components/PageHeader'
 import { Loading } from '../components/Loading'
 import { ErrorMessage } from '../components/ErrorMessage'
-import { ConfirmDialog } from '../components/ConfirmDialog'
 
 const emptyClient = {
   name: '',
@@ -13,7 +12,6 @@ const emptyClient = {
   cpf: '',
   birth_date: '',
   start_date: '',
-  due_date: '',
   monthly_fee: '',
   observations: '',
   chief_complaint: '',
@@ -111,7 +109,7 @@ function normalizeCEP(value) {
   return value.replace(/\D/g, '').slice(0, 8)
 }
 
-function formatAddress(address) {
+function formatAddressLine(address) {
   if (!address) return null
   const parts = [
     address.street,
@@ -196,7 +194,6 @@ export function Clients() {
   const [formAddress, setFormAddress] = useState(emptyAddress)
   const [showAddressModal, setShowAddressModal] = useState(false)
   const [editingAddressId, setEditingAddressId] = useState(null)
-  const [toggleStatusId, setToggleStatusId] = useState(null)
   const [evaluations, setEvaluations] = useState([])
 
   useEffect(() => {
@@ -247,7 +244,7 @@ export function Clients() {
 
   const filteredClients = clients.filter((c) => {
     const matchesSearch = c.name?.toLowerCase().includes(search.toLowerCase())
-    const matchesStatus = showInactive || c.status === 'ativo'
+    const matchesStatus = showInactive || c.status === 'ativo' || c.status === 'pausado'
     return matchesSearch && matchesStatus
   })
 
@@ -283,19 +280,6 @@ export function Clients() {
 
   function handleChange(e) {
     const { name, value } = e.target
-
-    if (name === 'due_date') {
-      const numeric = value.replace(/\D/g, '')
-      if (numeric === '') {
-        setForm((prev) => ({ ...prev, [name]: '' }))
-        return
-      }
-      const intValue = parseInt(numeric, 10)
-      if (intValue > 28) return
-      setForm((prev) => ({ ...prev, [name]: intValue.toString() }))
-      return
-    }
-
     setForm((prev) => ({ ...prev, [name]: value }))
   }
 
@@ -319,7 +303,6 @@ export function Clients() {
       cpf: client.cpf || '',
       birth_date: client.birth_date || '',
       start_date: client.start_date || '',
-      due_date: client.due_date || '',
       monthly_fee: client.monthly_fee || '',
       observations: client.observations || '',
       chief_complaint: client.chief_complaint || '',
@@ -484,12 +467,6 @@ export function Clients() {
     setSaving(true)
     setError('')
 
-    if (form.due_date && (parseInt(form.due_date, 10) < 1 || parseInt(form.due_date, 10) > 28)) {
-      setError('O dia de vencimento deve estar entre 1 e 28.')
-      setSaving(false)
-      return
-    }
-
     const addressPayload = {
       street: formAddress.street.trim() || null,
       number: formAddress.number.trim() || null,
@@ -509,7 +486,6 @@ export function Clients() {
       cpf: form.cpf || null,
       birth_date: form.birth_date || null,
       start_date: form.start_date || null,
-      due_date: form.due_date ? parseInt(form.due_date, 10) : null,
       monthly_fee: form.monthly_fee ? parseFloat(form.monthly_fee) : null,
       observations: form.observations || null,
       chief_complaint: form.chief_complaint || null,
@@ -686,27 +662,6 @@ export function Clients() {
     }
   }
 
-  async function handleToggleStatus() {
-    if (!toggleStatusId) return
-    const client = clients.find((c) => c.id === toggleStatusId)
-    if (!client) return
-    const newStatus = client.status === 'ativo' ? 'inativo' : 'ativo'
-    try {
-      const { error: supaError } = await supabase
-        .from('clients')
-        .update({ status: newStatus })
-        .eq('id', toggleStatusId)
-      if (supaError) throw supaError
-      await loadData()
-    } catch (err) {
-      const detail = err?.message || err?.error_description || JSON.stringify(err)
-      setError(`Erro ao ${newStatus === 'inativo' ? 'inativar' : 'reativar'} aluno: ${detail}`)
-      console.error(err)
-    } finally {
-      setToggleStatusId(null)
-    }
-  }
-
   return (
     <div>
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -765,7 +720,7 @@ export function Clients() {
               const clientTraining = getClientTrainingDays(client.id)
               const clientEvaluations = getClientEvaluations(client.id)
               const clientAddress = getClientAddress(client.id)
-              const addressText = formatAddress(clientAddress)
+              const addressText = formatAddressLine(clientAddress)
               return (
                 <div
                   key={client.id}
@@ -781,10 +736,16 @@ export function Clients() {
                           className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                             client.status === 'ativo'
                               ? 'bg-emerald-100 text-emerald-700'
+                              : client.status === 'pausado'
+                              ? 'bg-orange-100 text-orange-700'
                               : 'bg-slate-100 text-slate-600'
                           }`}
                         >
-                          {client.status === 'ativo' ? 'Ativo' : 'Inativo'}
+                          {client.status === 'ativo'
+                            ? 'Ativo'
+                            : client.status === 'pausado'
+                            ? 'Pausado'
+                            : 'Inativo'}
                         </span>
                         {client.birth_date && (
                           <span className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
@@ -885,25 +846,6 @@ export function Clients() {
                         <Pencil size={16} />
                         Editar
                       </button>
-                      {client.status === 'ativo' ? (
-                        <button
-                          type="button"
-                          onClick={() => setToggleStatusId(client.id)}
-                          className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--danger-bg)] bg-[var(--danger-bg)] px-4 py-2 text-sm font-medium text-[var(--danger)] hover:bg-red-100 md:flex-initial"
-                        >
-                          <UserX size={16} />
-                          Inativar
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setToggleStatusId(client.id)}
-                          className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 md:flex-initial"
-                        >
-                          <UserCheck size={16} />
-                          Reativar
-                        </button>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -986,6 +928,7 @@ export function Clients() {
                   >
                     <option value="ativo">Ativo</option>
                     <option value="inativo">Inativo</option>
+                    <option value="pausado">Pausado</option>
                   </select>
                 </div>
 
@@ -1013,22 +956,6 @@ export function Clients() {
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
                   />
                 </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
-                    Dia de vencimento
-                  </label>
-                  <input
-                    type="number"
-                    name="due_date"
-                    value={form.due_date}
-                    onChange={handleChange}
-                    min={1}
-                    max={28}
-                    placeholder="1 a 28"
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
-                  />
-                </div>
-
                 <div>
                   <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
                     Mensalidade (R$)
@@ -1061,7 +988,7 @@ export function Clients() {
                 </div>
 
                 {hasAddressFilled() ? (
-                  <p className="text-sm text-[var(--text)]">{formatAddress(formAddress)}</p>
+                  <p className="text-sm text-[var(--text)]">{formatAddressLine(formAddress)}</p>
                 ) : (
                   <p className="text-xs text-slate-500">Nenhum endereço cadastrado.</p>
                 )}
@@ -1459,17 +1386,6 @@ export function Clients() {
         </div>
       )}
 
-      <ConfirmDialog
-        open={!!toggleStatusId}
-        title={clients.find((c) => c.id === toggleStatusId)?.status === 'ativo' ? 'Inativar aluno' : 'Reativar aluno'}
-        message={
-          clients.find((c) => c.id === toggleStatusId)?.status === 'ativo'
-            ? 'Tem certeza que deseja inativar este aluno? O registro será mantido e poderá ser reativado posteriormente.'
-            : 'Tem certeza que deseja reativar este aluno? Ele voltará a aparecer nas listagens padrão.'
-        }
-        onConfirm={handleToggleStatus}
-        onCancel={() => setToggleStatusId(null)}
-      />
     </div>
   )
 }

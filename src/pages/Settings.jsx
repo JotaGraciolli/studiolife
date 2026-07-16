@@ -43,10 +43,10 @@ export function Settings() {
           </div>
           <div>
             <h3 className="font-semibold text-[var(--text-heading)]">
-              Upload de Modelo de Contrato
+              Contratos
             </h3>
             <p className="text-sm text-slate-500">
-              Envie o modelo de contrato em .doc ou .docx.
+              Gerencie modelo, contratos assinados e envio aos alunos.
             </p>
           </div>
         </button>

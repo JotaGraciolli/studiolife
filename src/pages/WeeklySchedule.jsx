@@ -50,6 +50,8 @@ export function WeeklySchedule() {
     const times = new Set()
 
     scheduleData.forEach((item) => {
+      if (!item.clients || item.clients.status !== 'ativo') return
+
       const time = item.training_time ? item.training_time.slice(0, 5) : '--:--'
       const day = item.week_day
       const clientName = item.clients?.name || 'Aluno não encontrado'

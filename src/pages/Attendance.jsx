@@ -69,6 +69,7 @@ export function Attendance() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [evaluationsMap, setEvaluationsMap] = useState({})
+  const [monthlyAbsences, setMonthlyAbsences] = useState({})
   const [absenceTemplate, setAbsenceTemplate] = useState(null)
   const [showPhoneModal, setShowPhoneModal] = useState(false)
   const [phoneStudent, setPhoneStudent] = useState(null)
@@ -122,6 +123,8 @@ export function Attendance() {
       const initialReplacement = {}
 
         ; (trainingData || []).forEach((item) => {
+          if (!item.clients || item.clients.status !== 'ativo') return
+
           const time = item.training_time ? item.training_time.slice(0, 5) : '--:--'
           if (!groups[time]) {
             groups[time] = []
@@ -164,6 +167,7 @@ export function Attendance() {
       const clientIds = Object.keys(initialMap)
       await loadExistingAttendance(clientIds, date)
       await loadEvaluations(clientIds)
+      await loadMonthlyAbsences(clientIds, date)
     } catch (err) {
       const detail = err?.message || err?.error_description || JSON.stringify(err)
       setError(`Erro ao carregar alunos: ${detail}`)
@@ -233,6 +237,47 @@ export function Attendance() {
         }
       })
       setReplacementMap((prev) => ({ ...prev, ...replacements }))
+    }
+  }
+
+  async function loadMonthlyAbsences(clientIds, date) {
+    if (clientIds.length === 0) {
+      setMonthlyAbsences({})
+      return
+    }
+
+    const current = new Date(date + 'T00:00:00')
+    const year = current.getFullYear()
+    const month = current.getMonth()
+    const start = new Date(year, month, 1).toISOString()
+    const end = new Date(year, month + 1, 0, 23, 59, 59).toISOString()
+
+    try {
+      const { data, error } = await supabase
+        .from('attendance')
+        .select('client_id, status')
+        .in('client_id', clientIds)
+        .gte('created_at', start)
+        .lte('created_at', end)
+
+      if (error) {
+        console.error('Erro ao carregar faltas do mês:', error)
+        return
+      }
+
+      const counts = {}
+      clientIds.forEach((id) => {
+        counts[id] = 0
+      })
+      ;(data || [])
+        .filter((record) => record.status === 'ausente')
+        .forEach((record) => {
+          counts[record.client_id] = (counts[record.client_id] || 0) + 1
+        })
+
+      setMonthlyAbsences(counts)
+    } catch (err) {
+      console.error('Erro ao carregar faltas do mês:', err)
     }
   }
 
@@ -451,7 +496,14 @@ export function Attendance() {
         if (deleteTrainingError) throw deleteTrainingError
       }
 
-      setSuccess('Presença registrada com sucesso!')
+      const pausedCount = await pauseStudentsWithThreeAbsences(selectedDate)
+
+      let successMessage = 'Presença registrada com sucesso!'
+      if (pausedCount > 0) {
+        successMessage += ` ${pausedCount} aluno${pausedCount > 1 ? 's' : ''} atingiu 3 faltas e foi pausado${pausedCount > 1 ? 's' : ''}.`
+      }
+
+      setSuccess(successMessage)
       setGroupedStudents([])
       setAttendanceMap({})
       setReplacementMap({})
@@ -461,6 +513,49 @@ export function Attendance() {
       console.error(err)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function pauseStudentsWithThreeAbsences(date) {
+    const current = new Date(date + 'T00:00:00')
+    const year = current.getFullYear()
+    const month = current.getMonth()
+    const start = new Date(year, month, 1).toISOString()
+    const end = new Date(year, month + 1, 0, 23, 59, 59).toISOString()
+
+    try {
+      const { data, error: countError } = await supabase
+        .from('attendance')
+        .select('client_id')
+        .eq('status', 'ausente')
+        .gte('created_at', start)
+        .lte('created_at', end)
+
+      if (countError) throw countError
+
+      const counts = {}
+      ;(data || []).forEach((record) => {
+        counts[record.client_id] = (counts[record.client_id] || 0) + 1
+      })
+
+      const clientIdsToPause = Object.entries(counts)
+        .filter(([, count]) => count >= 3)
+        .map(([clientId]) => clientId)
+
+      if (clientIdsToPause.length === 0) return 0
+
+      const { error: updateError } = await supabase
+        .from('clients')
+        .update({ status: 'pausado' })
+        .in('id', clientIdsToPause)
+        .neq('status', 'pausado')
+
+      if (updateError) throw updateError
+
+      return clientIdsToPause.length
+    } catch (err) {
+      console.error('Erro ao pausar alunos com 3 faltas:', err)
+      return 0
     }
   }
 
@@ -560,6 +655,12 @@ export function Attendance() {
                                   <span className="text-base font-medium text-[var(--text-heading)]">
                                     {student.clientName}
                                   </span>
+                                  {monthlyAbsences[student.clientId] > 0 && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">
+                                      {monthlyAbsences[student.clientId]} falta
+                                      {monthlyAbsences[student.clientId] > 1 ? 's' : ''}
+                                    </span>
+                                  )}
                                   {isEvaluationPending(evaluationsMap[student.clientId]) && (
                                     <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
                                       Avaliação pendente
