@@ -93,7 +93,7 @@ O StudioLife é uma Single Page Application (SPA) desenvolvida com React e empac
 
 #### Contratos
 
-- Upload do modelo de contrato em `.docx` com os placeholders `{{ALUNO}}`, `{{CPF}}`, `{{ENDERECO}}`, `{{FREQUENCIA}}`, `{{DIAS_HORARIOS}}` e `{{MENSALIDADE}}`.
+- Upload do modelo de contrato em `.docx` com os placeholders `{{ALUNO}}`, `{{FREQUENCIA}}`, `{{DIAS_HORARIOS}}` e `{{MENSALIDADE}}`.
 - Área de geração de contrato com seletor de alunos ativos (com busca por nome).
 - **Baixar contrato**: se o aluno já possui contrato assinado vinculado, faz o download do arquivo; caso contrário, gera o PDF a partir do modelo com as substituições.
 - **Enviar mensagem de contrato**: busca o template ativo da categoria "Contrato", substitui `{{ALUNO}}` pelo primeiro nome e abre o WhatsApp.

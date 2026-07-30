@@ -283,17 +283,12 @@ export function ContractSettings() {
         URL.revokeObjectURL(link.href)
       } else {
         const { generateAndDownloadContract } = await import('../services/contract')
-        const { data: address } = await supabase
-          .from('address')
-          .select('*')
-          .eq('id', selectedClient.address_id)
-          .maybeSingle()
         const { data: trainingDays } = await supabase
           .from('training_days')
           .select('*')
           .eq('client_id', selectedClient.id)
 
-        await generateAndDownloadContract(selectedClient, address, trainingDays || [])
+        await generateAndDownloadContract(selectedClient, trainingDays || [])
       }
     } catch (err) {
       const detail = err?.message || err?.error_description || JSON.stringify(err)

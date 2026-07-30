@@ -19,29 +19,6 @@ const weekDayLabels = {
   domingo: 'Domingo',
 }
 
-function formatCEP(value) {
-  if (!value) return ''
-  const digits = String(value).replace(/\D/g, '').slice(0, 8)
-  if (digits.length <= 5) return digits
-  return `${digits.slice(0, 5)}-${digits.slice(5)}`
-}
-
-export function formatAddress(address) {
-  if (!address) return ''
-  const parts = [
-    address.street,
-    address.number,
-    address.complement,
-    address.neighborhood,
-    address.city && address.state
-      ? `${address.city} - ${address.state}`
-      : address.city || address.state,
-  ].filter(Boolean)
-  const cep = address.cep ? `CEP: ${formatCEP(address.cep)}` : null
-  if (parts.length === 0 && !cep) return ''
-  return [...parts, cep].filter(Boolean).join(', ')
-}
-
 function formatCurrency(value) {
   if (value == null || value === '') return ''
   const number = Number(value)
@@ -78,22 +55,10 @@ function getFirstName(fullName) {
   return fullName.trim().split(' ')[0]
 }
 
-function validateContractData(client, address, trainingDays) {
+function validateContractData(client, trainingDays) {
   const missing = []
 
   if (!client.name?.trim()) missing.push('Nome do aluno')
-  if (!client.cpf?.trim()) missing.push('CPF')
-
-  if (!address) {
-    missing.push('Endereço')
-  } else {
-    if (!address.street?.trim()) missing.push('Rua')
-    if (!address.number?.trim()) missing.push('Número')
-    if (!address.neighborhood?.trim()) missing.push('Bairro')
-    if (!address.city?.trim()) missing.push('Cidade')
-    if (!address.state?.trim()) missing.push('Estado')
-    if (!address.cep?.trim()) missing.push('CEP')
-  }
 
   const regularDays = trainingDays?.filter((t) => !t.provisional) || []
   if (regularDays.length === 0) missing.push('Dias/horários de treino (não provisionais)')
@@ -136,7 +101,7 @@ export async function fetchContractTemplate() {
   }
 }
 
-function generateDocxFilled(templateBuffer, client, address, trainingDays) {
+function generateDocxFilled(templateBuffer, client, trainingDays) {
   const zip = new PizZip(templateBuffer)
 
   const doc = new Docxtemplater(zip, {
@@ -150,8 +115,6 @@ function generateDocxFilled(templateBuffer, client, address, trainingDays) {
 
   doc.render({
     ALUNO: client.name || '',
-    CPF: client.cpf || '',
-    ENDERECO: formatAddress(address),
     FREQUENCIA: formatFrequency(trainingDays),
     DIAS_HORARIOS: formatDaysAndTimes(trainingDays),
     MENSALIDADE: formatCurrency(client.monthly_fee),
@@ -243,9 +206,9 @@ async function renderDocxToPdf(docxBuffer) {
   }
 }
 
-export async function generateContract(templateBuffer, client, address, trainingDays) {
-  validateContractData(client, address, trainingDays)
-  const filledDocx = generateDocxFilled(templateBuffer, client, address, trainingDays)
+export async function generateContract(templateBuffer, client, trainingDays) {
+  validateContractData(client, trainingDays)
+  const filledDocx = generateDocxFilled(templateBuffer, client, trainingDays)
   return renderDocxToPdf(filledDocx)
 }
 
@@ -257,7 +220,7 @@ export function downloadContract(blob, originalFileName, clientName) {
   saveAs(blob, fileName)
 }
 
-export async function generateAndDownloadContract(client, address, trainingDays) {
+export async function generateAndDownloadContract(client, trainingDays) {
   const { fileData, fileName } = await fetchContractTemplate()
 
   if (!fileName.toLowerCase().endsWith('.docx')) {
@@ -267,6 +230,6 @@ export async function generateAndDownloadContract(client, address, trainingDays)
   }
 
   const arrayBuffer = await fileData.arrayBuffer()
-  const blob = await generateContract(arrayBuffer, client, address, trainingDays)
+  const blob = await generateContract(arrayBuffer, client, trainingDays)
   downloadContract(blob, fileName, client.name)
 }
