@@ -73,7 +73,10 @@ export function ContractSettings() {
 
   const [contractTemplate, setContractTemplate] = useState(null)
   const [downloadingContract, setDownloadingContract] = useState(false)
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false)
   const [sendingMessage, setSendingMessage] = useState(false)
+  const [showUnlinkConfirm, setShowUnlinkConfirm] = useState(false)
+  const [unlinkingContract, setUnlinkingContract] = useState(false)
 
   useEffect(() => {
     loadInitialData()
@@ -158,6 +161,38 @@ export function ContractSettings() {
       setSignedContracts(data || [])
     } catch (err) {
       console.error('Erro ao carregar contratos assinados:', err)
+    }
+  }
+
+  async function handleDownloadTemplate() {
+    if (!current?.file_path) {
+      setError('Nenhum modelo de contrato disponível para download.')
+      return
+    }
+
+    setDownloadingTemplate(true)
+    setError('')
+
+    try {
+      const { data, error: downloadError } = await supabase.storage
+        .from(BUCKET)
+        .download(current.file_path)
+      if (downloadError) throw downloadError
+
+      const blob = new Blob([await data.arrayBuffer()], { type: current.content_type })
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(blob)
+      link.download = current.file_name || 'modelo_contrato.docx'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(link.href)
+    } catch (err) {
+      const detail = err?.message || err?.error_description || JSON.stringify(err)
+      setError(`Erro ao baixar modelo: ${detail}`)
+      console.error(err)
+    } finally {
+      setDownloadingTemplate(false)
     }
   }
 
@@ -249,6 +284,28 @@ export function ContractSettings() {
     return signedContracts.find((c) => c.client_id === clientId)
   }
 
+  async function downloadSignedContract(signedContract, clientName) {
+    const { data, error: downloadError } = await supabase.storage
+      .from(SIGNED_BUCKET)
+      .download(signedContract.file_path)
+    if (downloadError) throw downloadError
+
+    const blob = new Blob([await data.arrayBuffer()], { type: signedContract.content_type })
+    const firstName = getFirstName(clientName)
+    const extension = signedContract.file_name.split('.').pop() || 'pdf'
+    const fileName = firstName
+      ? `contrato_assinado_${firstName}.${extension}`
+      : `contrato_assinado.${extension}`
+
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(link.href)
+  }
+
   async function handleDownloadContract() {
     if (!selectedClient) {
       setError('Selecione um aluno para baixar o contrato.')
@@ -262,25 +319,7 @@ export function ContractSettings() {
       const signedContract = getClientSignedContract(selectedClient.id)
 
       if (signedContract) {
-        const { data, error: downloadError } = await supabase.storage
-          .from(SIGNED_BUCKET)
-          .download(signedContract.file_path)
-        if (downloadError) throw downloadError
-
-        const blob = new Blob([await data.arrayBuffer()], { type: signedContract.content_type })
-        const firstName = getFirstName(selectedClient.name)
-        const extension = signedContract.file_name.split('.').pop() || 'pdf'
-        const fileName = firstName
-          ? `contrato_assinado_${firstName}.${extension}`
-          : `contrato_assinado.${extension}`
-
-        const link = document.createElement('a')
-        link.href = URL.createObjectURL(blob)
-        link.download = fileName
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        URL.revokeObjectURL(link.href)
+        await downloadSignedContract(signedContract, selectedClient.name)
       } else {
         const { generateAndDownloadContract } = await import('../services/contract')
         const { data: trainingDays } = await supabase
@@ -296,6 +335,54 @@ export function ContractSettings() {
       console.error(err)
     } finally {
       setDownloadingContract(false)
+    }
+  }
+
+  function handleUnlinkSigned() {
+    if (!selectedClient) {
+      setError('Selecione um aluno para desvincular o contrato.')
+      return
+    }
+    if (!getClientSignedContract(selectedClient.id)) {
+      setError('O aluno selecionado não possui contrato assinado vinculado.')
+      return
+    }
+    setShowUnlinkConfirm(true)
+  }
+
+  async function performUnlinkSigned(downloadFirst) {
+    if (!selectedClient) return
+
+    const signedContract = getClientSignedContract(selectedClient.id)
+    if (!signedContract) return
+
+    setUnlinkingContract(true)
+    setError('')
+
+    try {
+      if (downloadFirst) {
+        await downloadSignedContract(signedContract, selectedClient.name)
+      }
+
+      const { error: storageError } = await supabase.storage
+        .from(SIGNED_BUCKET)
+        .remove([signedContract.file_path])
+      if (storageError) throw storageError
+
+      const { error: deleteError } = await supabase
+        .from('client_contracts')
+        .delete()
+        .eq('id', signedContract.id)
+      if (deleteError) throw deleteError
+
+      await loadSignedContracts()
+      setShowUnlinkConfirm(false)
+    } catch (err) {
+      const detail = err?.message || err?.error_description || JSON.stringify(err)
+      setError(`Erro ao desvincular contrato: ${detail}`)
+      console.error(err)
+    } finally {
+      setUnlinkingContract(false)
     }
   }
 
@@ -501,6 +588,15 @@ export function ContractSettings() {
                       {formatDate(current.updated_at)}
                     </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadTemplate}
+                    disabled={downloadingTemplate}
+                    className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium text-[var(--text-heading)] hover:bg-slate-50 disabled:opacity-70"
+                  >
+                    <Download size={16} />
+                    {downloadingTemplate ? 'Baixando...' : 'Download'}
+                  </button>
                 </div>
               </div>
             )}
@@ -666,6 +762,17 @@ export function ContractSettings() {
                   <MessageCircle size={18} />
                   Enviar mensagem de contrato
                 </button>
+
+                {selectedClient && getClientSignedContract(selectedClient.id) && (
+                  <button
+                    type="button"
+                    onClick={handleUnlinkSigned}
+                    disabled={unlinkingContract}
+                    className="flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-70"
+                  >
+                    Desvincular contrato
+                  </button>
+                )}
               </div>
 
               <div className="border-t border-[var(--border)] pt-4">
@@ -731,6 +838,49 @@ export function ContractSettings() {
         onConfirm={performSignedUpload}
         onCancel={() => setShowSignedReplaceConfirm(false)}
       />
+
+      {showUnlinkConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-[var(--surface)] p-6 shadow-lg">
+            <h3 className="text-lg font-semibold text-[var(--text-heading)]">
+              Desvincular contrato assinado
+            </h3>
+            <p className="mt-2 text-sm text-slate-500">
+              O aluno <strong>{selectedClient?.name}</strong> possui um contrato assinado vinculado.
+              Essa ação é <strong>irreversível</strong> e removerá o arquivo do sistema.
+            </p>
+            <p className="mt-2 text-sm text-slate-500">
+              Recomendamos fazer o download do contrato antes de excluí-lo.
+            </p>
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setShowUnlinkConfirm(false)}
+                disabled={unlinkingContract}
+                className="rounded-lg border border-[var(--border)] bg-white px-4 py-2 text-sm font-medium text-[var(--text)] hover:bg-slate-50 disabled:opacity-70"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => performUnlinkSigned(false)}
+                disabled={unlinkingContract}
+                className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-70"
+              >
+                {unlinkingContract ? 'Excluindo...' : 'Apenas excluir'}
+              </button>
+              <button
+                type="button"
+                onClick={() => performUnlinkSigned(true)}
+                disabled={unlinkingContract}
+                className="rounded-lg bg-[var(--danger)] px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-70"
+              >
+                {unlinkingContract ? 'Baixando e excluindo...' : 'Baixar e excluir'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
