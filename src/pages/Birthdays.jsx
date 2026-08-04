@@ -5,6 +5,12 @@ import { PageHeader } from '../components/PageHeader'
 import { Loading } from '../components/Loading'
 import { ErrorMessage } from '../components/ErrorMessage'
 
+function parseLocalDate(dateString) {
+  if (!dateString) return null
+  const [year, month, day] = dateString.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
 function formatPhone(value) {
   if (!value) return ''
   const digits = value.replace(/\D/g, '')
@@ -23,7 +29,7 @@ function formatPhone(value) {
 
 function calculateAge(birthDateString) {
   if (!birthDateString) return null
-  const birthDate = new Date(birthDateString)
+  const birthDate = parseLocalDate(birthDateString)
   const today = new Date()
 
   let years = today.getFullYear() - birthDate.getFullYear()
@@ -56,7 +62,7 @@ function calculateAge(birthDateString) {
 
 function calculateDuration(startDateString) {
   if (!startDateString) return null
-  const startDate = new Date(startDateString)
+  const startDate = parseLocalDate(startDateString)
   const today = new Date()
 
   let years = today.getFullYear() - startDate.getFullYear()
@@ -89,13 +95,13 @@ function calculateDuration(startDateString) {
 
 function formatBirthDate(birthDateString) {
   if (!birthDateString) return ''
-  const date = new Date(birthDateString)
+  const date = parseLocalDate(birthDateString)
   return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
 function isBirthdayInMonth(birthDateString, month) {
   if (!birthDateString) return false
-  const date = new Date(birthDateString)
+  const date = parseLocalDate(birthDateString)
   return date.getMonth() === month
 }
 
@@ -117,7 +123,7 @@ function isBirthdayInCurrentWeek(birthDateString) {
   sunday.setDate(monday.getDate() + 6)
   sunday.setHours(23, 59, 59, 999)
 
-  const birthDate = new Date(birthDateString)
+  const birthDate = parseLocalDate(birthDateString)
   const birthdayThisYear = new Date(today.getFullYear(), birthDate.getMonth(), birthDate.getDate())
 
   return birthdayThisYear >= monday && birthdayThisYear <= sunday
@@ -182,8 +188,8 @@ export function Birthdays() {
   const sortedClients = useMemo(() => {
     return [...filteredClients].sort((a, b) => {
       if (!a.birth_date || !b.birth_date) return 0
-      const dateA = new Date(a.birth_date)
-      const dateB = new Date(b.birth_date)
+      const dateA = parseLocalDate(a.birth_date)
+      const dateB = parseLocalDate(b.birth_date)
       return dateA.getDate() - dateB.getDate()
     })
   }, [filteredClients])
