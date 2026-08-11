@@ -5,6 +5,34 @@ import { supabase } from '../services/supabase'
 import { Loading } from '../components/Loading'
 import { ErrorMessage } from '../components/ErrorMessage'
 
+function isBirthdayToday(birthDateString) {
+  if (!birthDateString) return false
+  const today = new Date()
+  const [, month, day] = birthDateString.split('-').map(Number)
+  return today.getMonth() + 1 === month && today.getDate() === day
+}
+
+function isBirthdayInCurrentWeek(birthDateString) {
+  if (!birthDateString) return false
+  const [, birthMonth, birthDay] = birthDateString.split('-').map(Number)
+  const today = new Date()
+  const currentDay = today.getDay()
+  const diffToMonday = (currentDay + 6) % 7
+  const monday = new Date(today)
+  monday.setDate(today.getDate() - diffToMonday)
+  monday.setHours(0, 0, 0, 0)
+
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(monday)
+    date.setDate(monday.getDate() + i)
+    if (date.getMonth() + 1 === birthMonth && date.getDate() === birthDay) {
+      return true
+    }
+  }
+
+  return false
+}
+
 const cards = [
   {
     label: 'Alunos',
@@ -46,6 +74,7 @@ const cards = [
 export function Dashboard() {
   const [activeCount, setActiveCount] = useState(0)
   const [scheduleCounts, setScheduleCounts] = useState({})
+  const [birthdayCounts, setBirthdayCounts] = useState({ today: 0, week: 0 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const closingChecked = useRef(false)
@@ -56,15 +85,25 @@ export function Dashboard() {
         await ensureMonthEndClosing()
 
         const [activeClientsRes, trainingDaysRes] = await Promise.all([
-          supabase.from('clients').select('id').eq('status', 'ativo'),
+          supabase.from('clients').select('id, birth_date, status'),
           supabase.from('training_days').select('client_id, week_day, training_time'),
         ])
 
         if (activeClientsRes.error) throw activeClientsRes.error
         if (trainingDaysRes.error) throw trainingDaysRes.error
 
-        setActiveCount((activeClientsRes.data || []).length)
-        setScheduleCounts(buildScheduleCounts(activeClientsRes.data || [], trainingDaysRes.data || []))
+        const clients = activeClientsRes.data || []
+        const activeClients = clients.filter((c) => c.status === 'ativo')
+        setActiveCount(activeClients.length)
+        setScheduleCounts(buildScheduleCounts(activeClients, trainingDaysRes.data || []))
+        const todayCount = clients.filter((c) => isBirthdayToday(c.birth_date)).length
+        const weekCount = clients.filter(
+          (c) => isBirthdayInCurrentWeek(c.birth_date) && !isBirthdayToday(c.birth_date),
+        ).length
+        setBirthdayCounts({
+          today: todayCount,
+          week: weekCount,
+        })
       } catch (err) {
         const detail = err?.message || err?.error_description || JSON.stringify(err)
         setError(`Não foi possível carregar os dados do dashboard. ${detail}`)
@@ -242,6 +281,29 @@ export function Dashboard() {
           </table>
         </div>
       </div>
+
+      {(birthdayCounts.today > 0 || birthdayCounts.week > 0) && (
+        <div className="mb-8 rounded-2xl bg-blue-500 p-6 text-white shadow-md md:p-8">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20">
+              <Cake size={24} />
+            </div>
+            <h3 className="text-lg font-semibold text-white" style={{ color: 'white' }}>Aniversariantes</h3>
+          </div>
+          <div className="mt-4 space-y-2">
+            {birthdayCounts.today > 0 && (
+              <p className="text-sm">
+                Aniversariantes de Hoje: <span className="text-2xl font-bold">{birthdayCounts.today}</span>
+              </p>
+            )}
+            {birthdayCounts.week > 0 && (
+              <p className="text-sm">
+                Aniversariantes da Semana: <span className="text-2xl font-bold">{birthdayCounts.week}</span>
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       <h2 className="mb-4 text-lg font-semibold text-[var(--text-heading)]">
         Acesso rápido
