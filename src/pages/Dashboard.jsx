@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, ClipboardList, DollarSign, CalendarCheck, Activity, Cake } from 'lucide-react'
+import { Users, ClipboardList, DollarSign, CalendarCheck, Cake } from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { Loading } from '../components/Loading'
 import { ErrorMessage } from '../components/ErrorMessage'
@@ -45,33 +45,59 @@ const cards = [
 
 export function Dashboard() {
   const [activeCount, setActiveCount] = useState(0)
+  const [scheduleCounts, setScheduleCounts] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const closingChecked = useRef(false)
 
   useEffect(() => {
-    async function loadActiveClients() {
+    async function loadDashboard() {
       try {
         await ensureMonthEndClosing()
 
-        const { count, error: supaError } = await supabase
-          .from('clients')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'ativo')
+        const [activeClientsRes, trainingDaysRes] = await Promise.all([
+          supabase.from('clients').select('id').eq('status', 'ativo'),
+          supabase.from('training_days').select('client_id, week_day, training_time'),
+        ])
 
-        if (supaError) throw supaError
-        setActiveCount(count || 0)
+        if (activeClientsRes.error) throw activeClientsRes.error
+        if (trainingDaysRes.error) throw trainingDaysRes.error
+
+        setActiveCount((activeClientsRes.data || []).length)
+        setScheduleCounts(buildScheduleCounts(activeClientsRes.data || [], trainingDaysRes.data || []))
       } catch (err) {
         const detail = err?.message || err?.error_description || JSON.stringify(err)
-        setError(`Não foi possível carregar o total de alunos ativos. ${detail}`)
+        setError(`Não foi possível carregar os dados do dashboard. ${detail}`)
         console.error(err)
       } finally {
         setLoading(false)
       }
     }
 
-    loadActiveClients()
+    loadDashboard()
   }, [])
+
+  function buildScheduleCounts(activeClients, trainingDays) {
+    const activeClientIds = new Set(activeClients.map((c) => c.id))
+    const weekDays = ['segunda', 'terca', 'quarta', 'quinta', 'sexta']
+    const counts = {}
+    weekDays.forEach((day) => {
+      counts[day] = { manha: 0, tarde: 0 }
+    })
+
+    trainingDays.forEach((day) => {
+      if (!activeClientIds.has(day.client_id)) return
+      if (!counts[day.week_day]) return
+      const time = day.training_time ? day.training_time.slice(0, 5) : '00:00'
+      if (time < '12:00') {
+        counts[day.week_day].manha += 1
+      } else {
+        counts[day.week_day].tarde += 1
+      }
+    })
+
+    return counts
+  }
 
   async function ensureMonthEndClosing() {
     const today = new Date()
@@ -174,18 +200,46 @@ export function Dashboard() {
       <ErrorMessage message={error} />
 
       <div className="mb-8 rounded-2xl bg-[var(--primary)] p-6 text-white shadow-md md:p-8">
-        <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/20">
-            <Activity size={28} />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-teal-50">Total de alunos ativos</p>
-            {loading ? (
-              <Loading />
-            ) : (
-              <p className="text-4xl font-bold md:text-5xl">{activeCount}</p>
-            )}
-          </div>
+        <div className="mb-6">
+          <p className="text-sm font-medium text-teal-50">Total de alunos ativos</p>
+          {loading ? (
+            <Loading />
+          ) : (
+            <p className="text-4xl font-bold md:text-5xl">{activeCount}</p>
+          )}
+        </div>
+
+        <div className="overflow-x-auto rounded-xl bg-white/10 p-4">
+          <table className="w-full text-center text-sm text-white">
+            <thead>
+              <tr>
+                <th className="px-2 py-2 text-left font-medium text-teal-50"></th>
+                <th className="px-2 py-2 font-medium text-teal-50">SEG</th>
+                <th className="px-2 py-2 font-medium text-teal-50">TER</th>
+                <th className="px-2 py-2 font-medium text-teal-50">QUA</th>
+                <th className="px-2 py-2 font-medium text-teal-50">QUI</th>
+                <th className="px-2 py-2 font-medium text-teal-50">SEX</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-t border-white/20">
+                <td className="px-2 py-2 text-left font-medium">Manhã</td>
+                {['segunda', 'terca', 'quarta', 'quinta', 'sexta'].map((day) => (
+                  <td key={day} className="px-2 py-2 font-semibold">
+                    {loading ? '-' : scheduleCounts[day]?.manha || 0}
+                  </td>
+                ))}
+              </tr>
+              <tr className="border-t border-white/20">
+                <td className="px-2 py-2 text-left font-medium">tarde</td>
+                {['segunda', 'terca', 'quarta', 'quinta', 'sexta'].map((day) => (
+                  <td key={day} className="px-2 py-2 font-semibold">
+                    {loading ? '-' : scheduleCounts[day]?.tarde || 0}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 

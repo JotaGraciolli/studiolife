@@ -87,6 +87,7 @@ export function Financial() {
   const [phoneClient, setPhoneClient] = useState(null)
   const [phoneValue, setPhoneValue] = useState('')
   const [phoneSaving, setPhoneSaving] = useState(false)
+  const [showZeroBalance, setShowZeroBalance] = useState(false)
 
   const sortedMonths = useMemo(() => sortMonthsDescending(months), [months])
 
@@ -329,15 +330,34 @@ export function Financial() {
       const clientId = transaction.client_id
       const clientName = transaction.clients?.name || '-'
       if (!map[clientId]) {
-        map[clientId] = { clientId, clientName, total: 0, transactions: [] }
+        map[clientId] = { clientId, clientName, total: 0, credits: 0, debits: 0, transactions: [] }
       }
-      map[clientId].total += transaction.amount || 0
+      const amount = transaction.amount || 0
+      map[clientId].total += amount
+      if (amount > 0) map[clientId].credits += amount
+      if (amount < 0) map[clientId].debits += amount
       map[clientId].transactions.push(transaction)
     })
-    return Object.values(map).sort((a, b) => a.clientName.localeCompare(b.clientName))
+    return Object.values(map).sort((a, b) => {
+      const balanceRank = (total) => {
+        if (total < 0) return 0
+        if (total > 0) return 1
+        return 2
+      }
+      const rankDiff = balanceRank(a.total) - balanceRank(b.total)
+      if (rankDiff !== 0) return rankDiff
+      return a.clientName.localeCompare(b.clientName)
+    })
   }, [transactions])
 
+  const filteredGroups = useMemo(() => {
+    if (showZeroBalance) return groupedByClient
+    return groupedByClient.filter((g) => g.total !== 0)
+  }, [groupedByClient, showZeroBalance])
+
   const total = transactions.reduce((sum, t) => sum + (t.amount || 0), 0)
+  const totalCredits = transactions.reduce((sum, t) => sum + (t.amount > 0 ? t.amount : 0), 0)
+  const totalDebits = transactions.reduce((sum, t) => sum + (t.amount < 0 ? t.amount : 0), 0)
 
   const selectedMonth = sortedMonths.find((m) => m.id === selectedMonthId)
   const detailClient = groupedByClient.find((g) => g.clientId === detailClientId)
@@ -362,14 +382,15 @@ export function Financial() {
       <ErrorMessage message={error} />
 
       <div className="mb-6 rounded-xl bg-[var(--surface)] p-5 shadow-sm">
-        <p className="text-sm text-slate-500">Saldo total do mês</p>
-        <p
-          className={`text-3xl font-bold ${
-            total >= 0 ? 'text-emerald-600' : 'text-[var(--danger)]'
-          }`}
-        >
-          {formatCurrency(total)}
+        <p className="text-sm text-slate-500">Total de créditos do mês</p>
+        <p className="text-3xl font-bold text-emerald-600">
+          {formatCurrency(totalCredits)}
         </p>
+        <div className="mt-2 flex items-center gap-2 text-sm text-slate-500">
+          <span>Total de débitos {formatCurrency(totalDebits)}</span>
+          <span className="text-slate-300">|</span>
+          <span>Saldo do mês {formatCurrency(total)}</span>
+        </div>
       </div>
 
       <div className="mb-6 flex items-center gap-3">
@@ -413,37 +434,65 @@ export function Financial() {
       {loading ? (
         <Loading />
       ) : (
-        <div className="overflow-hidden rounded-xl bg-[var(--surface)] shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Aluno</th>
-                  <th className="px-4 py-3 font-medium text-right">Valor</th>
-                  <th className="px-4 py-3 font-medium text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--border)]">
-                {groupedByClient.length === 0 ? (
+        <div>
+          <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm text-[var(--text-heading)]">
+            <input
+              type="checkbox"
+              checked={showZeroBalance}
+              onChange={(e) => setShowZeroBalance(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-[var(--primary)] accent-[var(--primary)] focus:ring-[var(--primary)]"
+            />
+            Exibir saldo zerado
+          </label>
+          <div className="overflow-hidden rounded-xl bg-[var(--surface)] shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-slate-500">
-                      Nenhuma movimentação encontrada para {selectedMonth?.month || 'este mês'}.
-                    </td>
+                    <th className="px-4 py-3 font-medium">Aluno</th>
+                    <th className="px-4 py-3 font-medium text-right">Movimentações</th>
+                    <th className="px-4 py-3 font-medium text-right">Ações</th>
                   </tr>
-                ) : (
-                  groupedByClient.map((group) => {
-                    const isPositive = group.total >= 0
+                </thead>
+                <tbody className="divide-y divide-[var(--border)]">
+                  {filteredGroups.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-8 text-center text-slate-500">
+                        Nenhuma movimentação encontrada para {selectedMonth?.month || 'este mês'}.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredGroups.map((group) => {
                     return (
                       <tr key={group.clientId} className="hover:bg-slate-50">
                         <td className="px-4 py-3 font-medium text-[var(--text-heading)]">
                           {group.clientName}
                         </td>
-                        <td
-                          className={`px-4 py-3 text-right font-medium ${
-                            isPositive ? 'text-emerald-600' : 'text-[var(--danger)]'
-                          }`}
-                        >
-                          {formatCurrency(group.total)}
+                        <td className="px-4 py-3 text-right text-sm">
+                          <div className="inline-block whitespace-nowrap text-left">
+                            <div className="flex justify-between gap-6">
+                              <span className="whitespace-nowrap text-slate-500">Débitos:</span>
+                              <span className="whitespace-nowrap font-medium text-slate-700">
+                                {formatCurrency(group.debits)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between gap-6">
+                              <span className="whitespace-nowrap text-slate-500">Créditos:</span>
+                              <span className="whitespace-nowrap font-medium text-emerald-600">
+                                {formatCurrency(group.credits)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between gap-6">
+                              <span className="whitespace-nowrap text-slate-500">Saldo:</span>
+                              <span
+                                className={`whitespace-nowrap font-medium ${
+                                  group.total >= 0 ? 'text-emerald-600' : 'text-[var(--danger)]'
+                                }`}
+                              >
+                                {formatCurrency(group.total)}
+                              </span>
+                            </div>
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button
@@ -474,6 +523,7 @@ export function Financial() {
             </table>
           </div>
         </div>
+      </div>
       )}
 
       {showForm && (

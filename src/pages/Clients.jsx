@@ -1153,9 +1153,10 @@ export function Clients() {
                               className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 pl-9 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
                             >
                               <option value="">Selecione</option>
-                              {Array.from({ length: 24 }, (_, i) => {
-                                const hour = String(i).padStart(2, '0')
-                                const value = `${hour}:00`
+                              {Array.from({ length: 48 }, (_, i) => {
+                                const hour = String(Math.floor(i / 2)).padStart(2, '0')
+                                const minute = i % 2 === 0 ? '00' : '30'
+                                const value = `${hour}:${minute}`
                                 return (
                                   <option key={value} value={value}>
                                     {value}
