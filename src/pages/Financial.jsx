@@ -11,6 +11,7 @@ import {
   Calendar,
   MessageSquare,
   Phone,
+  Search,
 } from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { PageHeader } from '../components/PageHeader'
@@ -88,6 +89,7 @@ export function Financial() {
   const [phoneValue, setPhoneValue] = useState('')
   const [phoneSaving, setPhoneSaving] = useState(false)
   const [showZeroBalance, setShowZeroBalance] = useState(false)
+  const [search, setSearch] = useState('')
 
   const sortedMonths = useMemo(() => sortMonthsDescending(months), [months])
 
@@ -96,7 +98,7 @@ export function Financial() {
     setError('')
     try {
       const [clientsRes, monthsRes] = await Promise.all([
-        supabase.from('clients').select('id, name, phone').order('name'),
+        supabase.from('clients').select('id, name, phone, status').order('name'),
         supabase.from('month_end_closing').select('id, month'),
       ])
 
@@ -328,7 +330,10 @@ export function Financial() {
     const map = {}
     transactions.forEach((transaction) => {
       const clientId = transaction.client_id
-      const clientName = transaction.clients?.name || '-'
+      const client = clients.find((c) => c.id === clientId)
+      if (client?.status === 'pausado') return
+
+      const clientName = transaction.clients?.name || client?.name || '-'
       if (!map[clientId]) {
         map[clientId] = { clientId, clientName, total: 0, credits: 0, debits: 0, transactions: [] }
       }
@@ -348,16 +353,25 @@ export function Financial() {
       if (rankDiff !== 0) return rankDiff
       return a.clientName.localeCompare(b.clientName)
     })
-  }, [transactions])
+  }, [transactions, clients])
 
   const filteredGroups = useMemo(() => {
-    if (showZeroBalance) return groupedByClient
-    return groupedByClient.filter((g) => g.total !== 0)
-  }, [groupedByClient, showZeroBalance])
+    const searchLower = search.toLowerCase()
+    return groupedByClient.filter((g) => {
+      const matchesSearch = g.clientName.toLowerCase().includes(searchLower)
+      const matchesBalance = showZeroBalance || g.total !== 0
+      return matchesSearch && matchesBalance
+    })
+  }, [groupedByClient, showZeroBalance, search])
 
-  const total = transactions.reduce((sum, t) => sum + (t.amount || 0), 0)
-  const totalCredits = transactions.reduce((sum, t) => sum + (t.amount > 0 ? t.amount : 0), 0)
-  const totalDebits = transactions.reduce((sum, t) => sum + (t.amount < 0 ? t.amount : 0), 0)
+  const activeTransactions = transactions.filter((t) => {
+    const client = clients.find((c) => c.id === t.client_id)
+    return client?.status !== 'pausado'
+  })
+
+  const total = activeTransactions.reduce((sum, t) => sum + (t.amount || 0), 0)
+  const totalCredits = activeTransactions.reduce((sum, t) => sum + (t.amount > 0 ? t.amount : 0), 0)
+  const totalDebits = activeTransactions.reduce((sum, t) => sum + (t.amount < 0 ? t.amount : 0), 0)
 
   const selectedMonth = sortedMonths.find((m) => m.id === selectedMonthId)
   const detailClient = groupedByClient.find((g) => g.clientId === detailClientId)
@@ -435,15 +449,31 @@ export function Financial() {
         <Loading />
       ) : (
         <div>
-          <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm text-[var(--text-heading)]">
-            <input
-              type="checkbox"
-              checked={showZeroBalance}
-              onChange={(e) => setShowZeroBalance(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-[var(--primary)] accent-[var(--primary)] focus:ring-[var(--primary)]"
-            />
-            Exibir saldo zerado
-          </label>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search
+                size={18}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+              <input
+                type="text"
+                placeholder="Buscar por nome..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] py-2 pl-10 pr-4 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+              />
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-heading)] transition-colors hover:bg-slate-50">
+              <input
+                type="checkbox"
+                checked={showZeroBalance}
+                onChange={(e) => setShowZeroBalance(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-[var(--primary)] accent-[var(--primary)] focus:ring-[var(--primary)]"
+              />
+              Exibir saldo zerado
+            </label>
+          </div>
+
           <div className="overflow-hidden rounded-xl bg-[var(--surface)] shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -575,11 +605,13 @@ export function Financial() {
                   className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
                 >
                   <option value="">Selecione um aluno</option>
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.name}
-                    </option>
-                  ))}
+                  {clients
+                    .filter((client) => client.status !== 'pausado')
+                    .map((client) => (
+                      <option key={client.id} value={client.id}>
+                        {client.name}
+                      </option>
+                    ))}
                 </select>
               </div>
 

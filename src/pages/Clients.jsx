@@ -123,6 +123,64 @@ function formatAddressLine(address) {
   return [...parts, cep].filter(Boolean).join(', ')
 }
 
+const monthLabels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+function getCurrentMonthLabel() {
+  const now = new Date()
+  return `${monthLabels[now.getMonth()]}/${now.getFullYear()}`
+}
+
+async function getOrCreateCurrentMonth() {
+  const label = getCurrentMonthLabel()
+  const { data, error } = await supabase
+    .from('month_end_closing')
+    .select('id')
+    .eq('month', label)
+    .maybeSingle()
+
+  if (error) throw error
+  if (data) return data.id
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('month_end_closing')
+    .insert({ month: label })
+    .select('id')
+    .single()
+
+  if (insertError) throw insertError
+  return inserted.id
+}
+
+async function syncMonthlyDebit(clientId, monthlyFee) {
+  if (!monthlyFee || monthlyFee <= 0) return
+
+  const monthId = await getOrCreateCurrentMonth()
+  const amount = -Math.abs(monthlyFee)
+
+  const { data, error } = await supabase
+    .from('financial')
+    .select('id')
+    .eq('client_id', clientId)
+    .eq('month_id', monthId)
+    .lt('amount', 0)
+    .maybeSingle()
+
+  if (error) throw error
+
+  if (data) {
+    const { error: updateError } = await supabase
+      .from('financial')
+      .update({ amount })
+      .eq('id', data.id)
+    if (updateError) throw updateError
+  } else {
+    const { error: insertError } = await supabase
+      .from('financial')
+      .insert({ client_id: clientId, month_id: monthId, amount })
+    if (insertError) throw insertError
+  }
+}
+
 function DynamicListSection({ title, icon, items, fieldName, placeholder, onAdd, onUpdate, onRemove }) {
   return (
     <div className="rounded-xl border border-[var(--border)] bg-slate-50 p-4">
@@ -639,6 +697,10 @@ export function Clients() {
           .from('medications')
           .insert(medicationsToInsert)
         if (medicationsInsertError) throw medicationsInsertError
+      }
+
+      if (payload.status === 'ativo') {
+        await syncMonthlyDebit(clientId, payload.monthly_fee)
       }
 
       setShowForm(false)

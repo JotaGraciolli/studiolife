@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle2, XCircle, HelpCircle, Save, Calendar, Clock, ChevronLeft, ChevronRight, CalendarDays, MessageSquare, X, Phone } from 'lucide-react'
+import { CheckCircle2, XCircle, HelpCircle, Save, Calendar, Clock, ChevronLeft, ChevronRight, CalendarDays, MessageSquare, X, Phone, Search } from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { isEvaluationPending } from '../utils/evaluation'
 import { PageHeader } from '../components/PageHeader'
@@ -75,6 +75,7 @@ export function Attendance() {
   const [phoneStudent, setPhoneStudent] = useState(null)
   const [phoneValue, setPhoneValue] = useState('')
   const [phoneSaving, setPhoneSaving] = useState(false)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     loadStudentsForDay(selectedDay, selectedDate)
@@ -570,6 +571,15 @@ export function Attendance() {
 
   const selectedDayLabel = weekDays.find((d) => d.value === selectedDay)
 
+  const filteredGroups = groupedStudents
+    .map((group) => ({
+      ...group,
+      students: group.students.filter((student) =>
+        student.clientName.toLowerCase().includes(search.toLowerCase()),
+      ),
+    }))
+    .filter((group) => group.students.length > 0)
+
   return (
     <div>
       <PageHeader
@@ -580,43 +590,62 @@ export function Attendance() {
       <ErrorMessage message={error} />
       <SuccessMessage message={success} />
 
-      <div className="mb-6 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => changeDate(-1)}
-          className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--surface)] text-[var(--text-heading)] shadow-sm hover:bg-slate-50"
-        >
-          <ChevronLeft size={20} />
-        </button>
+      <div className="mb-6 flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => changeDate(-1)}
+              className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--surface)] text-[var(--text-heading)] shadow-sm hover:bg-slate-50"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <div className="relative">
+              <Calendar
+                size={18}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={handleDateChange}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface)] py-2 pl-10 pr-4 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => changeDate(1)}
+              className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--surface)] text-[var(--text-heading)] shadow-sm hover:bg-slate-50"
+            >
+              <ChevronRight size={20} />
+            </button>
+            <span className="ml-2 text-sm font-medium text-[var(--text-heading)]">
+              {selectedDayLabel?.full}
+            </span>
+          </div>
+
+          <Link
+            to="/weekly-schedule"
+            className="flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-dark)]"
+          >
+            <CalendarDays size={18} />
+            Programação semanal
+          </Link>
+        </div>
+
         <div className="relative">
-          <Calendar
+          <Search
             size={18}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
           />
           <input
-            type="date"
-            value={selectedDate}
-            onChange={handleDateChange}
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] py-2 pl-10 pr-4 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+            type="text"
+            placeholder="Buscar por nome..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] py-2 pl-10 pr-4 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
           />
         </div>
-        <button
-          type="button"
-          onClick={() => changeDate(1)}
-          className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--surface)] text-[var(--text-heading)] shadow-sm hover:bg-slate-50"
-        >
-          <ChevronRight size={20} />
-        </button>
-        <span className="ml-2 text-sm font-medium text-[var(--text-heading)]">
-          {selectedDayLabel?.full}
-        </span>
-        <Link
-          to="/weekly-schedule"
-          className="ml-auto flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-dark)]"
-        >
-          <CalendarDays size={18} />
-          Programação semanal
-        </Link>
       </div>
 
       {loading ? (
@@ -627,14 +656,14 @@ export function Attendance() {
           {/* Lista de Presença - {selectedDayLabel?.full} */}
           {/* </h2> */}
 
-          {groupedStudents.length === 0 ? (
+          {filteredGroups.length === 0 ? (
             <p className="py-8 text-center text-slate-500">
               Nenhum aluno ativo encontrado para este dia.
             </p>
           ) : (
             <>
               <div className="space-y-6">
-                {groupedStudents.map((group) => (
+                {filteredGroups.map((group) => (
                   <div key={group.time} className="rounded-xl border border-[var(--border)] bg-slate-50/50 p-4">
                     <h3 className="mb-3 text-base font-bold text-[var(--primary)]">
                       {group.time}
