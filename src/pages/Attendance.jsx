@@ -497,14 +497,7 @@ export function Attendance() {
         if (deleteTrainingError) throw deleteTrainingError
       }
 
-      const pausedCount = await pauseStudentsWithThreeAbsences(selectedDate)
-
-      let successMessage = 'Presença registrada com sucesso!'
-      if (pausedCount > 0) {
-        successMessage += ` ${pausedCount} aluno${pausedCount > 1 ? 's' : ''} atingiu 3 faltas e foi pausado${pausedCount > 1 ? 's' : ''}.`
-      }
-
-      setSuccess(successMessage)
+      setSuccess('Presença registrada com sucesso!')
       setGroupedStudents([])
       setAttendanceMap({})
       setReplacementMap({})
@@ -514,49 +507,6 @@ export function Attendance() {
       console.error(err)
     } finally {
       setSaving(false)
-    }
-  }
-
-  async function pauseStudentsWithThreeAbsences(date) {
-    const current = new Date(date + 'T00:00:00')
-    const year = current.getFullYear()
-    const month = current.getMonth()
-    const start = new Date(year, month, 1).toISOString()
-    const end = new Date(year, month + 1, 0, 23, 59, 59).toISOString()
-
-    try {
-      const { data, error: countError } = await supabase
-        .from('attendance')
-        .select('client_id')
-        .eq('status', 'ausente')
-        .gte('created_at', start)
-        .lte('created_at', end)
-
-      if (countError) throw countError
-
-      const counts = {}
-      ;(data || []).forEach((record) => {
-        counts[record.client_id] = (counts[record.client_id] || 0) + 1
-      })
-
-      const clientIdsToPause = Object.entries(counts)
-        .filter(([, count]) => count >= 3)
-        .map(([clientId]) => clientId)
-
-      if (clientIdsToPause.length === 0) return 0
-
-      const { error: updateError } = await supabase
-        .from('clients')
-        .update({ status: 'pausado' })
-        .in('id', clientIdsToPause)
-        .neq('status', 'pausado')
-
-      if (updateError) throw updateError
-
-      return clientIdsToPause.length
-    } catch (err) {
-      console.error('Erro ao pausar alunos com 3 faltas:', err)
-      return 0
     }
   }
 
