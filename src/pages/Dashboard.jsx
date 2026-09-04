@@ -144,54 +144,19 @@ export function Dashboard() {
 
     if (currentDay < 10) return
 
+    // A partir do dia 10, garante os débitos do mês CORRENTE e do MÊS SEGUINTE
+    // para todos os alunos ativos (ex.: dia 10 de setembro gera/atualiza os
+    // débitos de setembro e já cria os de outubro).
     const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
-    const monthLabel = `${monthNames[today.getMonth()]}/${today.getFullYear()}`
+    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1)
+    const monthLabelsToEnsure = [
+      `${monthNames[today.getMonth()]}/${today.getFullYear()}`,
+      `${monthNames[nextMonth.getMonth()]}/${nextMonth.getFullYear()}`,
+    ]
 
     try {
       if (closingChecked.current) return
       closingChecked.current = true
-
-      let { data: existing, error: findError } = await supabase
-        .from('month_end_closing')
-        .select('id')
-        .eq('month', monthLabel)
-        .order('created_at', { ascending: false })
-        .maybeSingle()
-
-      if (findError) throw findError
-
-      let monthId = existing?.id
-
-      if (!monthId) {
-        try {
-          const { data: inserted, error: insertError } = await supabase
-            .from('month_end_closing')
-            .insert({ month: monthLabel })
-            .select('id')
-            .single()
-
-          if (insertError) throw insertError
-          monthId = inserted?.id
-        } catch (insertErr) {
-          // Se outra execução paralela já criou o registro (violação de UNIQUE),
-          // buscamos o registro existente.
-          if (insertErr?.code === '23505') {
-            const { data: retryExisting, error: retryError } = await supabase
-              .from('month_end_closing')
-              .select('id')
-              .eq('month', monthLabel)
-              .order('created_at', { ascending: false })
-              .maybeSingle()
-
-            if (retryError) throw retryError
-            monthId = retryExisting?.id
-          } else {
-            throw insertErr
-          }
-        }
-      }
-
-      if (!monthId) return
 
       const { data: activeClients, error: clientsError } = await supabase
         .from('clients')
@@ -200,28 +165,73 @@ export function Dashboard() {
 
       if (clientsError) throw clientsError
 
-      const { data: existingTransactions, error: transactionsError } = await supabase
-        .from('financial')
-        .select('client_id')
-        .eq('month_id', monthId)
+      const billableClients = (activeClients || []).filter((client) => client.monthly_fee)
 
-      if (transactionsError) throw transactionsError
+      for (const monthLabel of monthLabelsToEnsure) {
+        const monthId = await getOrCreateMonthId(monthLabel)
+        if (!monthId) continue
 
-      const existingClientIds = new Set((existingTransactions || []).map((t) => t.client_id))
-      const newTransactions = (activeClients || [])
-        .filter((client) => !existingClientIds.has(client.id) && client.monthly_fee)
-        .map((client) => ({
-          client_id: client.id,
-          month_id: monthId,
-          amount: -Math.abs(client.monthly_fee),
-        }))
+        const { data: existingTransactions, error: transactionsError } = await supabase
+          .from('financial')
+          .select('client_id')
+          .eq('month_id', monthId)
 
-      if (newTransactions.length > 0) {
-        const { error: bulkError } = await supabase.from('financial').insert(newTransactions)
-        if (bulkError) throw bulkError
+        if (transactionsError) throw transactionsError
+
+        const existingClientIds = new Set((existingTransactions || []).map((t) => t.client_id))
+        const newTransactions = billableClients
+          .filter((client) => !existingClientIds.has(client.id))
+          .map((client) => ({
+            client_id: client.id,
+            month_id: monthId,
+            amount: -Math.abs(client.monthly_fee),
+          }))
+
+        if (newTransactions.length > 0) {
+          const { error: bulkError } = await supabase.from('financial').insert(newTransactions)
+          if (bulkError) throw bulkError
+        }
       }
     } catch (err) {
       console.error('Erro ao verificar fechamento mensal:', err)
+    }
+  }
+
+  async function getOrCreateMonthId(monthLabel) {
+    let { data: existing, error: findError } = await supabase
+      .from('month_end_closing')
+      .select('id')
+      .eq('month', monthLabel)
+      .order('created_at', { ascending: false })
+      .maybeSingle()
+
+    if (findError) throw findError
+    if (existing?.id) return existing.id
+
+    try {
+      const { data: inserted, error: insertError } = await supabase
+        .from('month_end_closing')
+        .insert({ month: monthLabel })
+        .select('id')
+        .single()
+
+      if (insertError) throw insertError
+      return inserted?.id
+    } catch (insertErr) {
+      // Se outra execução paralela já criou o registro (violação de UNIQUE),
+      // buscamos o registro existente.
+      if (insertErr?.code === '23505') {
+        const { data: retryExisting, error: retryError } = await supabase
+          .from('month_end_closing')
+          .select('id')
+          .eq('month', monthLabel)
+          .order('created_at', { ascending: false })
+          .maybeSingle()
+
+        if (retryError) throw retryError
+        return retryExisting?.id
+      }
+      throw insertErr
     }
   }
 

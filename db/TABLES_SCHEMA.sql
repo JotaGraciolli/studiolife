@@ -15,6 +15,7 @@ CREATE TABLE public.clients (
   cpf text,
   chief_complaint text,
   goal text,
+  due_date smallint,
   address_id uuid,
   CONSTRAINT clients_pkey PRIMARY KEY (id),
   CONSTRAINT clients_address_id_fkey FOREIGN KEY (address_id) REFERENCES public.address(id)
@@ -51,14 +52,15 @@ CREATE TABLE public.contacts (
   CONSTRAINT contacts_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id)
 );
 CREATE TABLE public.training_days (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   client_id uuid,
   week_day text,
   training_time time without time zone,
   provisional boolean DEFAULT false,
-  CONSTRAINT training_days_pkey PRIMARY KEY (id),
-  CONSTRAINT training_days_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id)
+  experimental boolean DEFAULT false,
+  training_type_id uuid,
+  CONSTRAINT training_days_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id),
+  CONSTRAINT training_days_training_type_id_fkey FOREIGN KEY (training_type_id) REFERENCES public.training_type(id)
 );
 CREATE TABLE public.financial (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -136,8 +138,9 @@ CREATE TABLE public.address (
   neighborhood text,
   city text,
   state text,
-  cep text,
   country text,
+  zip_code text,
+  cep text,
   CONSTRAINT address_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.client_contracts (
@@ -151,4 +154,9 @@ CREATE TABLE public.client_contracts (
   content_type text,
   CONSTRAINT client_contracts_pkey PRIMARY KEY (id),
   CONSTRAINT client_contracts_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id)
+);
+CREATE TABLE public.training_type (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  type text,
+  CONSTRAINT training_type_pkey PRIMARY KEY (id)
 );

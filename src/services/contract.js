@@ -29,8 +29,24 @@ function formatCurrency(value) {
   })
 }
 
+function normalizeTypeName(value) {
+  return (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+// Aula "Padrão" conta para a frequência do contrato; Reposição e Experimental não.
+// Linhas legadas sem tipo definido caem no booleano provisional anterior.
+function isRegularDay(day) {
+  const typeName = normalizeTypeName(day?.training_type?.type)
+  if (typeName) return typeName === 'padrao'
+  return !day?.provisional
+}
+
 function formatFrequency(trainingDays) {
-  const count = trainingDays?.filter((t) => !t.provisional).length || 0
+  const count = trainingDays?.filter(isRegularDay).length || 0
   if (count <= 0) return ''
   if (count === 1) return '1 vez por semana'
   return `${count} vezes por semana`
@@ -60,8 +76,8 @@ function validateContractData(client, trainingDays) {
 
   if (!client.name?.trim()) missing.push('Nome do aluno')
 
-  const regularDays = trainingDays?.filter((t) => !t.provisional) || []
-  if (regularDays.length === 0) missing.push('Dias/horários de treino (não provisionais)')
+  const regularDays = trainingDays?.filter(isRegularDay) || []
+  if (regularDays.length === 0) missing.push('Dias/horários de treino (somente aulas do tipo Padrão)')
 
   if (!trainingDays || trainingDays.length === 0) {
     missing.push('Dias/horários de treino')

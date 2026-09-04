@@ -324,7 +324,7 @@ export function ContractSettings() {
         const { generateAndDownloadContract } = await import('../services/contract')
         const { data: trainingDays } = await supabase
           .from('training_days')
-          .select('*')
+          .select('*, training_type(type)')
           .eq('client_id', selectedClient.id)
 
         await generateAndDownloadContract(selectedClient, trainingDays || [])

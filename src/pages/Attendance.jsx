@@ -44,6 +44,28 @@ function addDays(dateString, days) {
   return date.toISOString().split('T')[0]
 }
 
+function normalizeTypeName(value) {
+  return (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+// Reposição identifica aula de reposição; linhas legadas sem tipo caem no booleano provisional.
+function isReplacementDay(row) {
+  const typeName = normalizeTypeName(row?.training_type?.type)
+  if (typeName) return typeName === 'reposicao'
+  return !!row?.provisional
+}
+
+// Experimental identifica aula experimental; linhas legadas sem tipo caem no booleano experimental.
+function isExperimentalDay(row) {
+  const typeName = normalizeTypeName(row?.training_type?.type)
+  if (typeName) return typeName === 'experimental'
+  return !!row?.experimental
+}
+
 function formatPhone(value) {
   if (!value) return ''
   const digits = value.replace(/\D/g, '').slice(0, 11)
@@ -76,12 +98,28 @@ export function Attendance() {
   const [phoneValue, setPhoneValue] = useState('')
   const [phoneSaving, setPhoneSaving] = useState(false)
   const [search, setSearch] = useState('')
+  const [replacementTypeId, setReplacementTypeId] = useState(null)
 
   useEffect(() => {
     loadStudentsForDay(selectedDay, selectedDate)
     loadAbsenceTemplate()
+    loadTrainingTypes()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  async function loadTrainingTypes() {
+    try {
+      const { data, error: supaError } = await supabase
+        .from('training_type')
+        .select('id, type')
+
+      if (supaError) throw supaError
+      const replacement = (data || []).find((t) => normalizeTypeName(t.type) === 'reposicao')
+      setReplacementTypeId(replacement?.id || null)
+    } catch (err) {
+      console.error('Erro ao carregar tipos de aula:', err)
+    }
+  }
 
   async function loadAbsenceTemplate() {
     try {
@@ -112,7 +150,7 @@ export function Attendance() {
     try {
       const { data: trainingData, error: trainingError } = await supabase
         .from('training_days')
-        .select('id, training_time, week_day, provisional, client_id, clients(id, name, status, phone)')
+        .select('id, training_time, week_day, provisional, experimental, training_type_id, training_type(type), client_id, clients(id, name, status, phone)')
         .eq('week_day', day)
         .eq('clients.status', 'ativo')
         .order('training_time', { ascending: true })
@@ -137,7 +175,8 @@ export function Attendance() {
             phone: item.clients?.phone || '',
             trainingTime: time,
             weekDay: item.week_day,
-            provisional: item.provisional || false,
+            provisional: isReplacementDay(item),
+            experimental: isExperimentalDay(item),
           })
           initialMap[item.client_id] = 'presente'
           initialReplacement[item.client_id] = {
@@ -217,9 +256,8 @@ export function Attendance() {
   async function loadReplacementDays(clientIds) {
     const { data, error } = await supabase
       .from('training_days')
-      .select('client_id, week_day, training_time')
+      .select('client_id, week_day, training_time, provisional, training_type_id, training_type(type)')
       .in('client_id', clientIds)
-      .eq('provisional', true)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -227,9 +265,11 @@ export function Attendance() {
       return
     }
 
-    if (data && data.length > 0) {
+    const replacementDays = (data || []).filter(isReplacementDay)
+
+    if (replacementDays.length > 0) {
       const replacements = {}
-      data.forEach((record) => {
+      replacementDays.forEach((record) => {
         if (!replacements[record.client_id]) {
           replacements[record.client_id] = {
             week_day: record.week_day,
@@ -453,6 +493,8 @@ export function Attendance() {
                 client_id: student.clientId,
                 week_day: replacement.week_day,
                 training_time: replacement.training_time + ':00',
+                training_type_id: replacementTypeId,
+                // Mantido por compatibilidade enquanto a coluna existir.
                 provisional: true,
               })
             }
@@ -648,6 +690,9 @@ export function Attendance() {
                                 </div>
                                 {student.provisional && (
                                   <span className="text-xs text-purple-600">(reposição)</span>
+                                )}
+                                {student.experimental && (
+                                  <span className="text-xs font-medium text-emerald-600">(Experimental)</span>
                                 )}
                                 {status === 'ausente' && (
                                   <button

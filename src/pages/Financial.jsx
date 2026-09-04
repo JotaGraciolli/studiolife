@@ -9,9 +9,12 @@ import {
   ChevronRight,
   Eye,
   Calendar,
+  CalendarPlus,
   MessageSquare,
   Phone,
+  RefreshCw,
   Search,
+  Settings,
 } from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { PageHeader } from '../components/PageHeader'
@@ -63,6 +66,93 @@ function getFirstName(fullName) {
   return fullName.trim().split(' ')[0]
 }
 
+function getCurrentMonthLabel() {
+  const now = new Date()
+  return `${monthOrder[now.getMonth()]}/${now.getFullYear()}`
+}
+
+function getNextMonthLabel(label) {
+  const date = parseMonthLabel(label)
+  if (!date) return null
+  const next = new Date(date.getFullYear(), date.getMonth() + 1, 1)
+  return `${monthOrder[next.getMonth()]}/${next.getFullYear()}`
+}
+
+async function getOrCreateMonthId(monthLabel) {
+  const { data: existing, error: findError } = await supabase
+    .from('month_end_closing')
+    .select('id')
+    .eq('month', monthLabel)
+    .order('created_at', { ascending: false })
+    .maybeSingle()
+
+  if (findError) throw findError
+  if (existing?.id) return existing.id
+
+  try {
+    const { data: inserted, error: insertError } = await supabase
+      .from('month_end_closing')
+      .insert({ month: monthLabel })
+      .select('id')
+      .single()
+
+    if (insertError) throw insertError
+    return inserted?.id
+  } catch (insertErr) {
+    // Se outra execução paralela já criou o registro (violação de UNIQUE),
+    // buscamos o registro existente.
+    if (insertErr?.code === '23505') {
+      const { data: retryExisting, error: retryError } = await supabase
+        .from('month_end_closing')
+        .select('id')
+        .eq('month', monthLabel)
+        .order('created_at', { ascending: false })
+        .maybeSingle()
+
+      if (retryError) throw retryError
+      return retryExisting?.id
+    }
+    throw insertErr
+  }
+}
+
+// Cria débitos de mensalidade (-monthly_fee) no mês informado para todos os
+// alunos ativos com mensalidade definida que ainda não possuem débito naquele mês.
+// Retorna a quantidade de débitos criados.
+async function generateMissingDebits(monthId) {
+  const { data: activeClients, error: clientsError } = await supabase
+    .from('clients')
+    .select('id, monthly_fee')
+    .eq('status', 'ativo')
+
+  if (clientsError) throw clientsError
+
+  const billableClients = (activeClients || []).filter((client) => client.monthly_fee > 0)
+
+  const { data: existingTransactions, error: transactionsError } = await supabase
+    .from('financial')
+    .select('client_id')
+    .eq('month_id', monthId)
+
+  if (transactionsError) throw transactionsError
+
+  const existingClientIds = new Set((existingTransactions || []).map((t) => t.client_id))
+  const newTransactions = billableClients
+    .filter((client) => !existingClientIds.has(client.id))
+    .map((client) => ({
+      client_id: client.id,
+      month_id: monthId,
+      amount: -Math.abs(client.monthly_fee),
+    }))
+
+  if (newTransactions.length > 0) {
+    const { error: insertError } = await supabase.from('financial').insert(newTransactions)
+    if (insertError) throw insertError
+  }
+
+  return newTransactions.length
+}
+
 export function Financial() {
   const [clients, setClients] = useState([])
   const [months, setMonths] = useState([])
@@ -90,8 +180,20 @@ export function Financial() {
   const [phoneSaving, setPhoneSaving] = useState(false)
   const [showZeroBalance, setShowZeroBalance] = useState(false)
   const [search, setSearch] = useState('')
+  const [showManageModal, setShowManageModal] = useState(false)
+  const [manageMonthId, setManageMonthId] = useState('')
+  const [manageBusy, setManageBusy] = useState('')
+  const [manageFeedback, setManageFeedback] = useState(null)
+  const [manageConfirm, setManageConfirm] = useState(null)
 
   const sortedMonths = useMemo(() => sortMonthsDescending(months), [months])
+
+  const nextMonthLabel = useMemo(() => {
+    const baseLabel = sortedMonths[0]?.month || getCurrentMonthLabel()
+    return getNextMonthLabel(baseLabel)
+  }, [sortedMonths])
+
+  const nextMonthExists = months.some((m) => m.month === nextMonthLabel)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -326,6 +428,68 @@ export function Financial() {
     setSelectedMonthId(e.target.value)
   }
 
+  function openManageModal() {
+    setManageMonthId(selectedMonthId || sortedMonths[0]?.id || '')
+    setManageFeedback(null)
+    setShowManageModal(true)
+  }
+
+  function closeManageModal() {
+    setShowManageModal(false)
+    setManageConfirm(null)
+    setManageBusy('')
+  }
+
+  async function handleStartNewMonth() {
+    setManageBusy('newMonth')
+    setManageFeedback(null)
+    try {
+      const monthId = await getOrCreateMonthId(nextMonthLabel)
+      if (!monthId) throw new Error('Não foi possível criar o mês.')
+      const created = await generateMissingDebits(monthId)
+      setManageFeedback({
+        kind: 'success',
+        text: `Mês ${nextMonthLabel} iniciado com ${created} débito(s) gerado(s).`,
+      })
+      await loadData()
+      setManageMonthId(monthId)
+    } catch (err) {
+      const detail = err?.message || err?.error_description || JSON.stringify(err)
+      setManageFeedback({ kind: 'error', text: `Erro ao iniciar novo mês: ${detail}` })
+      console.error(err)
+    } finally {
+      setManageBusy('')
+      setManageConfirm(null)
+    }
+  }
+
+  async function handleGenerateMissing() {
+    if (!manageMonthId) return
+    setManageBusy('fillDebits')
+    setManageFeedback(null)
+    try {
+      const monthLabel = months.find((m) => m.id === manageMonthId)?.month
+      const created = await generateMissingDebits(manageMonthId)
+      setManageFeedback({
+        kind: 'success',
+        text:
+          created > 0
+            ? `${created} débito(s) faltante(s) gerado(s) para ${monthLabel}.`
+            : `Nenhum débito faltante para ${monthLabel}. Todos os alunos ativos já possuem débito.`,
+      })
+      if (manageMonthId === selectedMonthId) {
+        await loadTransactions(selectedMonthId)
+      }
+    } catch (err) {
+      const detail = err?.message || err?.error_description || JSON.stringify(err)
+      setManageFeedback({ kind: 'error', text: `Erro ao gerar débitos: ${detail}` })
+      console.error(err)
+    } finally {
+      setManageBusy('')
+      setManageConfirm(null)
+    }
+  }
+
   const groupedByClient = useMemo(() => {
     const map = {}
     transactions.forEach((transaction) => {
@@ -383,14 +547,24 @@ export function Financial() {
           title="Movimentação Financeira"
           description="Controle entradas e saídas do estúdio por mês."
         />
-        <button
-          type="button"
-          onClick={openNew}
-          className="flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-dark)]"
-        >
-          <Plus size={18} />
-          Nova movimentação
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            onClick={openManageModal}
+            className="flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2 text-sm font-medium text-[var(--text)] hover:bg-slate-50"
+          >
+            <Settings size={18} />
+            Gerenciar
+          </button>
+          <button
+            type="button"
+            onClick={openNew}
+            className="flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-dark)]"
+          >
+            <Plus size={18} />
+            Nova movimentação
+          </button>
+        </div>
       </div>
 
       <ErrorMessage message={error} />
@@ -902,6 +1076,99 @@ export function Financial() {
           </div>
         </div>
       )}
+
+      {showManageModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-[var(--surface)] p-6 shadow-lg">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[var(--text-heading)]">
+                Gerenciar meses
+              </h3>
+              <button
+                type="button"
+                onClick={closeManageModal}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="mb-6">
+              <label className="mb-1 block text-sm font-medium text-[var(--text-heading)]">
+                Mês selecionado
+              </label>
+              <select
+                value={manageMonthId}
+                onChange={(e) => setManageMonthId(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-light)]"
+              >
+                {sortedMonths.length === 0 && <option value="">Nenhum mês aberto</option>}
+                {sortedMonths.map((month) => (
+                  <option key={month.id} value={month.id}>
+                    {month.month}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => setManageConfirm('newMonth')}
+                disabled={!!manageBusy || !nextMonthLabel || nextMonthExists}
+                className="flex items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-dark)] disabled:opacity-50"
+              >
+                <CalendarPlus size={18} />
+                {nextMonthExists
+                  ? `Próximo mês (${nextMonthLabel}) já criado`
+                  : `Iniciar novo mês (${nextMonthLabel})`}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setManageConfirm('fillDebits')}
+                disabled={!!manageBusy || !manageMonthId}
+                className="flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-[var(--text)] hover:bg-slate-50 disabled:opacity-50"
+              >
+                <RefreshCw size={18} className={manageBusy === 'fillDebits' ? 'animate-spin' : ''} />
+                {manageBusy === 'fillDebits' ? 'Gerando...' : 'Gerar débitos faltantes'}
+              </button>
+            </div>
+
+            {manageFeedback && (
+              <p
+                className={`mt-4 text-sm ${
+                  manageFeedback.kind === 'success' ? 'text-emerald-600' : 'text-[var(--danger)]'
+                }`}
+              >
+                {manageFeedback.text}
+              </p>
+            )}
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={closeManageModal}
+                className="rounded-lg border border-[var(--border)] bg-white px-4 py-2 text-sm font-medium text-[var(--text)] hover:bg-slate-50"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!manageConfirm}
+        title={manageConfirm === 'newMonth' ? 'Iniciar novo mês' : 'Gerar débitos faltantes'}
+        message={
+          manageConfirm === 'newMonth'
+            ? `Será criado o mês ${nextMonthLabel} e gerados os débitos de todos os alunos ativos. Deseja continuar?`
+            : 'Serão gerados débitos para os alunos ativos que não possuem débito no mês selecionado. Deseja continuar?'
+        }
+        onConfirm={manageConfirm === 'newMonth' ? handleStartNewMonth : handleGenerateMissing}
+        onCancel={() => setManageConfirm(null)}
+      />
 
       <ConfirmDialog
         open={!!deleteId}

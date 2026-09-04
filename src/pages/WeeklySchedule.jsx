@@ -14,6 +14,28 @@ const weekDays = [
   { value: 'sexta', label: 'SEX', full: 'Sexta-feira' },
 ]
 
+function normalizeTypeName(value) {
+  return (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+// Reposição identifica aula de reposição; linhas legadas sem tipo caem no booleano provisional.
+function isReplacementDay(row) {
+  const typeName = normalizeTypeName(row?.training_type?.type)
+  if (typeName) return typeName === 'reposicao'
+  return !!row?.provisional
+}
+
+// Experimental identifica aula experimental; linhas legadas sem tipo caem no booleano experimental.
+function isExperimentalDay(row) {
+  const typeName = normalizeTypeName(row?.training_type?.type)
+  if (typeName) return typeName === 'experimental'
+  return !!row?.experimental
+}
+
 export function WeeklySchedule() {
   const [scheduleData, setScheduleData] = useState([])
   const [loading, setLoading] = useState(true)
@@ -26,7 +48,7 @@ export function WeeklySchedule() {
       try {
         const { data, error: supaError } = await supabase
           .from('training_days')
-          .select('id, training_time, week_day, provisional, client_id, clients(id, name, status)')
+          .select('id, training_time, week_day, provisional, experimental, training_type_id, training_type(type), client_id, clients(id, name, status)')
           .in('week_day', weekDays.map((d) => d.value))
           .eq('clients.status', 'ativo')
           .order('training_time', { ascending: true })
@@ -62,7 +84,8 @@ export function WeeklySchedule() {
       }
       map[key].push({
         name: clientName,
-        provisional: item.provisional || false,
+        provisional: isReplacementDay(item),
+        experimental: isExperimentalDay(item),
       })
 
       times.add(time)
@@ -171,6 +194,11 @@ export function WeeklySchedule() {
                                     {student.provisional && (
                                       <span className="ml-1 text-[10px] text-purple-600">
                                         (rep)
+                                      </span>
+                                    )}
+                                    {student.experimental && (
+                                      <span className="ml-1 text-[10px] text-purple-600">
+                                        (Exp)
                                       </span>
                                     )}
                                   </div>

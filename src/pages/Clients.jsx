@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, Search, Pencil, X, Phone, Calendar, Clock, Trash, Stethoscope, Ban, Pill, MapPin } from 'lucide-react'
 import { supabase } from '../services/supabase'
 import { isEvaluationPending } from '../utils/evaluation'
@@ -43,6 +43,14 @@ const weekDayOptions = [
 
 function getShortDay(value) {
   return weekDayOptions.find((d) => d.value === value)?.short || value
+}
+
+function normalizeTypeName(value) {
+  return (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
 }
 
 function calculateAge(birthDateString) {
@@ -232,6 +240,7 @@ export function Clients() {
   const [clients, setClients] = useState([])
   const [contacts, setContacts] = useState([])
   const [trainingDays, setTrainingDays] = useState([])
+  const [trainingTypes, setTrainingTypes] = useState([])
   const [diagnoses, setDiagnoses] = useState([])
   const [restrictions, setRestrictions] = useState([])
   const [medications, setMedications] = useState([])
@@ -254,6 +263,32 @@ export function Clients() {
   const [editingAddressId, setEditingAddressId] = useState(null)
   const [evaluations, setEvaluations] = useState([])
 
+  // Tipo "Padrão" como opção default nos dias de treino.
+  const defaultTrainingTypeId = useMemo(() => {
+    const padrao = trainingTypes.find((t) => normalizeTypeName(t.type) === 'padrao')
+    return padrao?.id || trainingTypes[0]?.id || ''
+  }, [trainingTypes])
+
+  function getTrainingTypeIdOrDefault(value) {
+    return value || defaultTrainingTypeId
+  }
+
+  function isReplacementType(typeId) {
+    const type = trainingTypes.find((t) => t.id === getTrainingTypeIdOrDefault(typeId))
+    return normalizeTypeName(type?.type) === 'reposicao'
+  }
+
+  // Sufixo exibido no bubble do card: (rep) para Reposição, (exp) para Experimental.
+  // Linhas legadas sem tipo mantêm o comportamento antigo via booleano provisional.
+  function getTrainingDaySuffix(trainingDay) {
+    const type = trainingTypes.find((t) => t.id === trainingDay.training_type_id)
+    const typeName = normalizeTypeName(type?.type)
+    if (typeName === 'reposicao') return '(rep)'
+    if (typeName === 'experimental') return '(exp)'
+    if (!typeName && trainingDay.provisional) return '(rep)'
+    return ''
+  }
+
   useEffect(() => {
     loadData()
   }, [])
@@ -262,11 +297,12 @@ export function Clients() {
     setLoading(true)
     setError('')
     try {
-      const [clientsRes, contactsRes, trainingRes, diagnosesRes, restrictionsRes, medicationsRes, evaluationsRes, addressesRes] =
+      const [clientsRes, contactsRes, trainingRes, trainingTypesRes, diagnosesRes, restrictionsRes, medicationsRes, evaluationsRes, addressesRes] =
         await Promise.all([
           supabase.from('clients').select('*').order('name', { ascending: true }),
           supabase.from('contacts').select('*'),
           supabase.from('training_days').select('*'),
+          supabase.from('training_type').select('id, type'),
           supabase.from('diagnoses').select('*'),
           supabase.from('restrictions').select('*'),
           supabase.from('medications').select('*'),
@@ -277,6 +313,7 @@ export function Clients() {
       if (clientsRes.error) throw clientsRes.error
       if (contactsRes.error) throw contactsRes.error
       if (trainingRes.error) throw trainingRes.error
+      if (trainingTypesRes.error) throw trainingTypesRes.error
       if (diagnosesRes.error) throw diagnosesRes.error
       if (restrictionsRes.error) throw restrictionsRes.error
       if (medicationsRes.error) throw medicationsRes.error
@@ -286,6 +323,7 @@ export function Clients() {
       setClients(clientsRes.data || [])
       setContacts(contactsRes.data || [])
       setTrainingDays(trainingRes.data || [])
+      setTrainingTypes(trainingTypesRes.data || [])
       setDiagnoses(diagnosesRes.data || [])
       setRestrictions(restrictionsRes.data || [])
       setMedications(medicationsRes.data || [])
@@ -400,7 +438,7 @@ export function Clients() {
         id: t.id,
         week_day: t.week_day || 'segunda',
         training_time: t.training_time ? t.training_time.slice(0, 5) : '',
-        provisional: t.provisional || false,
+        training_type_id: getTrainingTypeIdOrDefault(t.training_type_id),
       })),
     )
     setFormDiagnoses(getClientDiagnoses(client.id).map((d) => ({ id: d.id, diagnose: d.diagnose || '' })))
@@ -428,7 +466,7 @@ export function Clients() {
   function addTrainingDay() {
     setFormTrainingDays((prev) => [
       ...prev,
-      { week_day: 'segunda', training_time: '', provisional: false },
+      { week_day: 'segunda', training_time: '', training_type_id: defaultTrainingTypeId },
     ])
   }
 
@@ -629,7 +667,9 @@ export function Clients() {
           client_id: clientId,
           week_day: t.week_day,
           training_time: t.training_time + ':00',
-          provisional: t.provisional || false,
+          training_type_id: getTrainingTypeIdOrDefault(t.training_type_id),
+          // Mantido por compatibilidade com as telas que ainda leem o booleano.
+          provisional: isReplacementType(t.training_type_id),
         }))
 
       if (trainingToInsert.length > 0) {
@@ -856,8 +896,8 @@ export function Clients() {
                                       className="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-1 text-xs font-medium text-purple-700"
                                     >
                                       {getShortDay(d.week_day)} {time}
-                                      {d.provisional && (
-                                        <span className="ml-1 text-purple-500">(rep)</span>
+                                      {getTrainingDaySuffix(d) && (
+                                        <span className="ml-1 text-purple-500">{getTrainingDaySuffix(d)}</span>
                                       )}
                                     </span>
                                   )
@@ -1236,17 +1276,23 @@ export function Clients() {
                           <Trash size={18} />
                         </button>
                       </div>
-                      <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text-heading)]">
-                        <input
-                          type="checkbox"
-                          checked={day.provisional || false}
-                          onChange={(e) =>
-                            updateTrainingDay(index, 'provisional', e.target.checked)
-                          }
-                          className="h-4 w-4 rounded border-slate-300 text-[var(--primary)] accent-[var(--primary)]"
-                        />
-                        Dia provisório (reposição)
-                      </label>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                        {trainingTypes.map((type) => (
+                          <label
+                            key={type.id}
+                            className="flex cursor-pointer items-center gap-1.5 text-sm text-[var(--text-heading)]"
+                          >
+                            <input
+                              type="radio"
+                              name={`training-type-${index}`}
+                              checked={getTrainingTypeIdOrDefault(day.training_type_id) === type.id}
+                              onChange={() => updateTrainingDay(index, 'training_type_id', type.id)}
+                              className="h-4 w-4 border-slate-300 text-[var(--primary)] accent-[var(--primary)]"
+                            />
+                            {type.type}
+                          </label>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
