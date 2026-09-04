@@ -99,6 +99,7 @@ export function Attendance() {
   const [phoneSaving, setPhoneSaving] = useState(false)
   const [search, setSearch] = useState('')
   const [replacementTypeId, setReplacementTypeId] = useState(null)
+  const [experimentalTypeId, setExperimentalTypeId] = useState(null)
 
   useEffect(() => {
     loadStudentsForDay(selectedDay, selectedDate)
@@ -114,8 +115,10 @@ export function Attendance() {
         .select('id, type')
 
       if (supaError) throw supaError
-      const replacement = (data || []).find((t) => normalizeTypeName(t.type) === 'reposicao')
-      setReplacementTypeId(replacement?.id || null)
+      const findTypeId = (name) =>
+        (data || []).find((t) => normalizeTypeName(t.type) === name)?.id || null
+      setReplacementTypeId(findTypeId('reposicao'))
+      setExperimentalTypeId(findTypeId('experimental'))
     } catch (err) {
       console.error('Erro ao carregar tipos de aula:', err)
     }
@@ -474,6 +477,7 @@ export function Attendance() {
       const attendanceRecords = []
       const replacementRecords = []
       const provisionalTrainingIdsToDelete = []
+      const experimentalClientIdsToPause = []
 
       groupedStudents.forEach((group) => {
         group.students.forEach((student) => {
@@ -486,6 +490,11 @@ export function Attendance() {
             created_at: `${selectedDate}T${time}`,
           })
 
+          // Presença em aula experimental: o aluno é pausado.
+          if (status === 'presente' && student.experimental) {
+            experimentalClientIdsToPause.push(student.clientId)
+          }
+
           if (status === 'falta_justificada' && !noReplacementMap[student.clientId]) {
             const replacement = replacementMap[student.clientId]
             if (replacement?.week_day && replacement?.training_time) {
@@ -493,9 +502,12 @@ export function Attendance() {
                 client_id: student.clientId,
                 week_day: replacement.week_day,
                 training_time: replacement.training_time + ':00',
-                training_type_id: replacementTypeId,
+                // Aula experimental reposta gera um novo dia experimental;
+                // caso contrário, segue como reposição comum.
+                training_type_id: student.experimental ? experimentalTypeId : replacementTypeId,
                 // Mantido por compatibilidade enquanto a coluna existir.
                 provisional: true,
+                experimental: student.experimental,
               })
             }
           }
@@ -539,7 +551,21 @@ export function Attendance() {
         if (deleteTrainingError) throw deleteTrainingError
       }
 
-      setSuccess('Presença registrada com sucesso!')
+      // Presença em aula experimental pausa o aluno automaticamente.
+      const pauseIds = Array.from(new Set(experimentalClientIdsToPause))
+      if (pauseIds.length > 0) {
+        const { error: pauseError } = await supabase
+          .from('clients')
+          .update({ status: 'pausado' })
+          .in('id', pauseIds)
+        if (pauseError) throw pauseError
+      }
+
+      setSuccess(
+        pauseIds.length > 0
+          ? 'Presença registrada com sucesso! Aluno(s) de aula experimental com presença foram pausados.'
+          : 'Presença registrada com sucesso!',
+      )
       setGroupedStudents([])
       setAttendanceMap({})
       setReplacementMap({})

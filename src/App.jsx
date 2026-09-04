@@ -7,6 +7,7 @@ import { Login } from './pages/Login'
 import { Dashboard } from './pages/Dashboard'
 import { Clients } from './pages/Clients'
 import { Evaluations } from './pages/Evaluations'
+import { EvaluationTypes } from './pages/EvaluationTypes'
 import { Financial } from './pages/Financial'
 import { Attendance } from './pages/Attendance'
 import { Birthdays } from './pages/Birthdays'
@@ -51,6 +52,16 @@ function AppRoutes() {
           <RequireAuth>
             <Layout>
               <Evaluations />
+            </Layout>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/evaluation-types"
+        element={
+          <RequireAuth>
+            <Layout>
+              <EvaluationTypes />
             </Layout>
           </RequireAuth>
         }
